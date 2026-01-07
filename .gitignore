@@ -1,0 +1,12 @@
+.venv
+.venv1
+
+data/datasets/
+data/__pycache__/
+
+wandb
+checkpoints/
+
+flash-sparse-attention/
+
+
