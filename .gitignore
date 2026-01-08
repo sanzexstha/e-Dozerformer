@@ -1,8 +1,9 @@
 .venv
 .venv1
 
+.idea/
+
 data/datasets/
-data/__pycache__/
 
 wandb
 checkpoints/
@@ -11,3 +12,16 @@ results/
 
 .e-Dozer
 
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
