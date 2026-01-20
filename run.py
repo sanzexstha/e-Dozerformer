@@ -39,7 +39,7 @@ def main():
     parser.add_argument('--embed_dim', type=int, default=8, help='encoder input size')
     parser.add_argument('--decoder_embed_dim', type=int, default=8, help='encoder input size')
     parser.add_argument('--n_heads', type=int, default=4, help='number of multihead attention')
-    parser.add_argument('--encoder_depth', type=int, default=8, help='The layers of transformer encoder')
+    parser.add_argument('--encoder_depth', type=int, default=2, help='The layers of transformer encoder')
     parser.add_argument('--decoder_depth', type=int, default=1, help='The layers of transformer decoder')
     # Those transformers used this in encoder and decoder as the parameter for conv1d, MLP
     parser.add_argument('--d_ff', type=int, default=32, help='dimension of MLP in transformer')
@@ -121,9 +121,14 @@ def main():
         'ETTm2': {'data': 'ETT-data/ETTm2.csv', 'data_dim': 7, 'split': [4 * 12 * 30 * 24, 4 * 4 * 30 * 24, 4 * 4 * 30 * 24]},
         'ETTm1_labeled': {'data': 'ETT-data/ETTm1_labeled.csv', 'data_dim': 7,
                   'split': [4 * 12 * 30 * 24, 4 * 4 * 30 * 24, 4 * 4 * 30 * 24]},
+        'ETTm2_labeled': {'data': 'ETT-data/ETTm2_labeled.csv', 'data_dim': 7,
+                  'split': [4 * 12 * 30 * 24, 4 * 4 * 30 * 24, 4 * 4 * 30 * 24]},
 
-        'electricity': {'data': 'STEE/electricity.csv', 'data_dim': 321, 'split': [0.7, 0.1, 0.2]},
+        'electricity': {'data': 'electricity/electricity.csv', 'data_dim': 321, 'split': [0.7, 0.1, 0.2]},
+        'electricity_labeled': {'data': 'electricity/electricity_labeled.csv', 'data_dim': 321, 'split': [0.7, 0.1, 0.2]},
         'Weather': {'data': 'STEE/weather.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
+        'Weather_labeled': {'data': 'STEE/Weather_labeled.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
+
         'ILI': {'data': 'national_illness.csv', 'data_dim': 7, 'split': [0.7, 0.1, 0.2]},
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
         'Exchange': {'data': 'STEE/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},

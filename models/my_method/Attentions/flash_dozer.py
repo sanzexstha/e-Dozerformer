@@ -79,7 +79,7 @@ class DozerAttention(nn.Module):
 
         # active = attn_mask.to(torch.bool).sum()
 
-        # flops_qk = 2 * H * active * D
+        # flops = 2 * H * active * D
 
         attn = flash_sparse_attn_func(
             query=queries,
@@ -89,7 +89,7 @@ class DozerAttention(nn.Module):
             attn_bias=None,
             softmax_scale=scale,
         )
-        # self.flops_accum = flops_qk / 1e6
+        # self.flops_accum = flops / 1e6
 
         attn = attn.to(orig_dtype)
 
