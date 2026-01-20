@@ -12,7 +12,7 @@ from math import ceil
 import torch
 from einops import rearrange, reduce, repeat
 
-def labels_to_segments(y, patch_size=24, in_channel=None):
+def labels_to_segments(y, patch_size, in_channel=None):
     B, L, C = y.shape
     seg_num = L // patch_size  # number of segments
 
