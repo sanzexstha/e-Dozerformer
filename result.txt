@@ -334,3 +334,42 @@ mse:0.2755056321620941, mae:0.3278173506259918
 finetune_dozerformer_Linear_ETTm2_labeled_ftM_sl720_ll96_pl720_segl48_dm8_nh4_el8_dl1_df1  
 mse:0.36012139916419983, mae:0.3826977014541626
 
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl720_ll96_pl96_segl48_dm8_nh4_el2_dl1_df1  
+mse:0.1467023640871048, mae:0.26884979009628296
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll96_pl96_segl48_dm8_nh4_el2_dl1_df1  
+mse:0.09473270922899246, mae:0.2156919687986374
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll96_pl96_segl48_dm20_nh4_el2_dl1_df1  
+mse:0.08993274718523026, mae:0.2097291350364685
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll96_pl96_segl48_dm21_nh4_el2_dl1_df1  
+mse:0.08820690214633942, mae:0.20686843991279602
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll48_pl192_segl24_dm21_nh4_el2_dl1_df1  
+mse:0.21502730250358582, mae:0.3209543824195862
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll48_pl192_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.21135714650154114, mae:0.31864506006240845
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll48_pl192_segl24_dm21_nh4_el2_dl1_df1  
+mse:0.21657094359397888, mae:0.3225175142288208
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll48_pl192_segl24_dm21_nh4_el2_dl1_df1  
+mse:0.19799333810806274, mae:0.3101538419723511
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll48_pl192_segl24_dm32_nh4_el2_dl1_df1  
+mse:0.19868335127830505, mae:0.31074777245521545
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll96_pl96_segl48_dm21_nh4_el2_dl1_df1  
+mse:0.08820690214633942, mae:0.20686843991279602
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll96_pl336_segl48_dm21_nh4_el2_dl1_df1  
+mse:0.41063886880874634, mae:0.4521806836128235
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl96_ll96_pl336_segl48_dm21_nh4_el2_dl1_df1  
+mse:0.3815072774887085, mae:0.43637678027153015
+
+finetune_dozerformer_Linear_Exchange_labeled_ftM_sl336_ll96_pl720_segl48_dm21_nh4_el2_dl1_df1  
+mse:1.1004670858383179, mae:0.777937114238739
+

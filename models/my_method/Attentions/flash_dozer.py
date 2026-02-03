@@ -54,7 +54,8 @@ class DozerAttention(nn.Module):
             # combine locality + content
             # adapt mask perform better than combination with dozer_mask
             base_mask = adapt_mask & dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
-
+            # base_mask = adapt_mask
+            # base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
 
             # base_mask = adapt_mask  # [batch_size, L_Q, L_K]
 

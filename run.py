@@ -77,7 +77,7 @@ def main():
     parser.add_argument('--train_epochs', type=int, default=20, help='train epochs')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
-    parser.add_argument('--wandb', type=bool, default=True, help='flag for whether use wandb')
+    parser.add_argument('--wandb', type=bool, default=False, help='flag for whether use wandb')
     parser.add_argument('--abla_type', type=str, default='False', help='ablation study type')
 
     args = parser.parse_args()
@@ -131,7 +131,8 @@ def main():
 
         'ILI': {'data': 'national_illness.csv', 'data_dim': 7, 'split': [0.7, 0.1, 0.2]},
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
-        'Exchange': {'data': 'STEE/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
+        'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
+        'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
     }
     if args.data in data_parser.keys():
         data_info = data_parser[args.data]
