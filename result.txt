@@ -739,3 +739,18 @@ mse:0.3654848039150238, mae:0.3899576663970947
 finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
 mse:0.3654848039150238, mae:0.3899576663970947
 
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3654848039150238, mae:0.3899576663970947
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.36654090881347656, mae:0.3908616900444031
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.36881497502326965, mae:0.3902975022792816
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3681527078151703, mae:0.3899769186973572
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.36801719665527344, mae:0.38999080657958984
+

@@ -56,9 +56,9 @@ class DozerAttention(nn.Module):
             # base_mask = adapt_mask & dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
             full_mask = torch.ones(L_Q, L_K, device=queries.device, dtype=torch.bool)
             # base_mask = full_mask.unsqueeze(0).expand(batch_size, -1, -1)
-            # base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
+            base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
 
-            base_mask = adapt_mask  # [batch_size, L_Q, L_K]
+            # base_mask = adapt_mask  # [batch_size, L_Q, L_K]
 
             # expand to B = batch_size * in_channel
             adapt_dozer_mask = repeat(base_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
