@@ -205,6 +205,7 @@ def process_one_batch(model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch
     batch_x = batch_x.float().to(args.device)
     batch_y = batch_y.float().to(args.device)
     batch_label = batch_label.float().to(args.device)
+    batch_cycle = batch_cycle.int().to(args.device)
 
     # decoder input
     dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float()

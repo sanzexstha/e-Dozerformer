@@ -93,7 +93,6 @@ class Exp_Main(Exp_Basic):
                 optimizer.zero_grad()
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
-                batch_cycle = batch_cycle.int().to(self.device)
                 if 'PEMS' in self.args.data or 'Solar' in self.args.data:
                     batch_x_mark = None
                     batch_y_mark = None

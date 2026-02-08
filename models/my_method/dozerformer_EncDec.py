@@ -109,7 +109,7 @@ class dozerformer_Encoder(nn.Module):
         B, L, d_model = patches.shape
 
         # phase: (B,)
-        phase_pre = phase.repeat_interleave(self.in_channel).to("cuda:0")  # (B*ts_d,) = (224,)
+        phase_pre = phase.repeat_interleave(self.in_channel)  # (B*ts_d,) = (224,)
         phase_post = phase_pre.view(-1, 1).expand(-1, L)  # (224, 30) => (B, L)
 
         patch_emb = self.patch_embedding.expand(B, L, -1)  # Patch embedding
