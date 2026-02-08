@@ -40,7 +40,8 @@ class dozerformer_Encoder(nn.Module):
         self.in_channel = configs.data_dim
         self.seq_len = configs.seq_len
         self.batch_size = configs.batch_size
-
+        self.cycle_len = configs.cycle
+        self.embed_dim = configs.embed_dim
         self.d_model = configs.embed_dim*configs.patch_size
         # self.d_model = 512
         # self.d_ff = 512
@@ -78,31 +79,44 @@ class dozerformer_Encoder(nn.Module):
 
         self.fc_embed1 = nn.Linear(self.patch_size * configs.embed_dim, 512)
         self.fc_embed2 = nn.Linear(512, self.patch_size * configs.embed_dim)
-        self.chan_embed = nn.Embedding(self.in_channel, self.in_channel)
-        self.chan_scale = nn.Parameter(torch.tensor(0.01))  # small to avoid shift
-        nn.init.zeros_(self.chan_embed.weight)  # start as no-op
+        self.seg_num = self.seq_len // self.patch_size
+
+
+        self.patch_embedding = nn.Parameter(torch.zeros(self.seg_num, self.d_model))
+        self.phase_embedding = nn.Embedding(self.cycle_len, self.d_model)
+        nn.init.xavier_normal_(self.phase_embedding.weight)
+        self.joint_embedding = nn.Embedding(self.cycle_len, self.seg_num  * self.d_model)
+        nn.init.xavier_normal_(self.joint_embedding.weight)
+        nn.init.xavier_normal_(self.patch_embedding)
+
 
         # self.projection = nn.Linear(self.d_model, self.patch_size * configs.embed_dim)
 
 
-    def forward(self, x_enc, x_label):
+    def forward(self, x_enc, x_label, x_mark_enc, phase):
         embeddings = self.encoder_val_embedding(rearrange(x_enc, 'b seq_len ts_d -> b 1 seq_len ts_d'))
         # Segment
         patches = self.encoder_segment(embeddings)
         identity = patches
         # Add pos
         patches = patches + self.encoder_pos_embed
-
-
         patches = rearrange(patches, 'b d_model seg_num seg_len ts_d -> (b ts_d) seg_num (seg_len d_model)')
-
         # Lrelu = nn.LeakyReLU(0.1)
         # relu = nn.ReLU()
         # T = nn.Tanh()
-        # # # FC encoder embedding
+        # # # EFE embedding
         # patches = self.fc_embed2(T(self.fc_embed1(patches)))
+        B, L, d_model = patches.shape
 
+        # phase: (B,)
+        phase_pre = phase.repeat_interleave(self.in_channel).to("cuda:0")  # (B*ts_d,) = (224,)
+        phase_post = phase_pre.view(-1, 1).expand(-1, L)  # (224, 30) => (B, L)
 
+        patch_emb = self.patch_embedding.expand(B, L, -1)  # Patch embedding
+        phase_emb = self.phase_embedding(phase_post)  # Phase embedding
+        joint_emb = self.joint_embedding(phase_pre).reshape(B, L, self.d_model)  # Joint Patch-Phase embedding
+
+        patches =  patches + patch_emb + phase_emb + joint_emb
 
         # PreNorm
         patches = self.encoder_pre_norm(patches)

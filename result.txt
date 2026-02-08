@@ -700,3 +700,42 @@ mse:0.3651007413864136, mae:0.38969677686691284
 finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
 mse:0.3679334223270416, mae:0.39188045263290405
 
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3680959641933441, mae:0.38989391922950745
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3725430965423584, mae:0.3922390341758728
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3680959641933441, mae:0.38989391922950745
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3693418800830841, mae:0.3908359408378601
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3690912425518036, mae:0.39015474915504456
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3670710325241089, mae:0.38823139667510986
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3654848039150238, mae:0.3899576663970947
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3698076903820038, mae:0.3935360610485077
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3707851469516754, mae:0.39409780502319336
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.36654090881347656, mae:0.3908616900444031
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.36654090881347656, mae:0.3908616900444031
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3654848039150238, mae:0.3899576663970947
+
+finetune_dozerformer_Linear_ETTh1_labeled_ftM_sl720_ll96_pl96_segl24_dm8_nh4_el2_dl1_df1  
+mse:0.3654848039150238, mae:0.3899576663970947
+

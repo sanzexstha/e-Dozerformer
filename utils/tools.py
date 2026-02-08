@@ -215,14 +215,14 @@ def process_one_batch(model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch
     if args.use_amp:
         with torch.cuda.amp.autocast():
             if args.output_attention:
-                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)[0]
+                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)[0]
             else:
-                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)
+                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)
     else:
         if args.output_attention:
-            outputs, attns = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)
+            outputs, attns = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)
         else:
-            outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)
+            outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)
 
         f_dim = -1 if args.features == 'S' else 0
 
