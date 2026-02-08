@@ -80,6 +80,15 @@ def main():
     parser.add_argument('--wandb', type=bool, default=False, help='flag for whether use wandb')
     parser.add_argument('--abla_type', type=str, default='False', help='ablation study type')
 
+    parser.add_argument('--freq', type=str, default='h',
+                        help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
+    parser.add_argument('--embed', type=str, default='timeF',
+                        help='time features encoding, options:[timeF, fixed, learned]')
+    parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
+    parser.add_argument('--cycle', type=int, default=24, help='cycle length')
+
+
+
     args = parser.parse_args()
     # args.patch
     # patch_labels = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1,

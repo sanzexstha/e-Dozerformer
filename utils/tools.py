@@ -201,7 +201,7 @@ def Cal_FLOPs(model, batch_x, dec_inp, batch_label):
 
 
 
-def process_one_batch(model, batch_x, batch_y, batch_label, args):
+def process_one_batch(model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, args):
     batch_x = batch_x.float().to(args.device)
     batch_y = batch_y.float().to(args.device)
     batch_label = batch_label.float().to(args.device)
@@ -215,14 +215,14 @@ def process_one_batch(model, batch_x, batch_y, batch_label, args):
     if args.use_amp:
         with torch.cuda.amp.autocast():
             if args.output_attention:
-                outputs = model(batch_x, dec_inp, batch_label)[0]
+                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)[0]
             else:
-                outputs = model(batch_x, dec_inp, batch_label)
+                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)
     else:
         if args.output_attention:
-            outputs, attns = model(batch_x, dec_inp, batch_label)
+            outputs, attns = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)
         else:
-            outputs = model(batch_x, dec_inp, batch_label)
+            outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label)
 
         f_dim = -1 if args.features == 'S' else 0
 

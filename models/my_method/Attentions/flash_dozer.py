@@ -53,9 +53,10 @@ class DozerAttention(nn.Module):
 
             # combine locality + content
             # adapt mask perform better than combination with dozer_mask
-            base_mask = adapt_mask & dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
-            # base_mask = adapt_mask
-            # base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
+            # base_mask = adapt_mask & dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
+            full_mask = torch.ones(L_Q, L_K, device=queries.device, dtype=torch.bool)
+            # base_mask = full_mask.unsqueeze(0).expand(batch_size, -1, -1)
+            base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
 
             # base_mask = adapt_mask  # [batch_size, L_Q, L_K]
 
@@ -66,7 +67,7 @@ class DozerAttention(nn.Module):
             adapt_dozer_mask = repeat(base_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
 
             # Final mask for FSA: [B, H, L_Q, L_K] (bool)
-            # attn_mask = adapt_dozer_mask.unsqueeze(1)
+            # attn_mask = adapt_dozer_mask.unsqueeze(1)c
             attn_mask = adapt_dozer_mask.unsqueeze(1).expand(-1, H, -1, -1)
 
 

@@ -41,8 +41,10 @@ class dozerformer_Encoder(nn.Module):
         self.seq_len = configs.seq_len
         self.batch_size = configs.batch_size
 
-        d_model = configs.embed_dim*configs.patch_size
-        d_ff = configs.d_ff*configs.patch_size
+        self.d_model = configs.embed_dim*configs.patch_size
+        # self.d_model = 512
+        # self.d_ff = 512
+        self.d_ff = configs.d_ff*configs.patch_size
         # Embedding是非常重要的问题
         self.encoder_val_embedding = DI_embedding(configs.patch_size, configs.embed_dim, configs.dropout)
         self.encoder_segment = TS_Segment(configs.seq_len, configs.patch_size)
@@ -52,8 +54,8 @@ class dozerformer_Encoder(nn.Module):
                                                             configs.patch_size,
                                                             self.in_channel
                                                             ))
-        self.encoder_pre_norm = nn.LayerNorm(d_model)
-        self.encoder_norm = nn.LayerNorm(d_model)
+        self.encoder_pre_norm = nn.LayerNorm(self.d_model)
+        self.encoder_norm = nn.LayerNorm(self.d_model)
         # Attention
         self.encoder = Encoder(
             [EncoderLayer(
@@ -63,10 +65,10 @@ class dozerformer_Encoder(nn.Module):
                                     False,
                                     attention_dropout=configs.dropout,
                                     output_attention=configs.output_attention),
-                    d_model,
+                    self.d_model,
                     configs.n_heads),
-                d_model=d_model,
-                d_ff=d_ff,
+                d_model=self.d_model,
+                d_ff=self.d_ff,
                 dropout=configs.dropout,
                 activation=configs.activation
             ) for l in range(configs.encoder_depth)
@@ -74,6 +76,13 @@ class dozerformer_Encoder(nn.Module):
             norm_layer=None
         )
 
+        self.fc_embed1 = nn.Linear(self.patch_size * configs.embed_dim, 512)
+        self.fc_embed2 = nn.Linear(512, self.patch_size * configs.embed_dim)
+        self.chan_embed = nn.Embedding(self.in_channel, self.in_channel)
+        self.chan_scale = nn.Parameter(torch.tensor(0.01))  # small to avoid shift
+        nn.init.zeros_(self.chan_embed.weight)  # start as no-op
+
+        # self.projection = nn.Linear(self.d_model, self.patch_size * configs.embed_dim)
 
 
     def forward(self, x_enc, x_label):
@@ -84,7 +93,17 @@ class dozerformer_Encoder(nn.Module):
         # Add pos
         patches = patches + self.encoder_pos_embed
 
+
         patches = rearrange(patches, 'b d_model seg_num seg_len ts_d -> (b ts_d) seg_num (seg_len d_model)')
+
+        # Lrelu = nn.LeakyReLU(0.1)
+        # relu = nn.ReLU()
+        # T = nn.Tanh()
+        # # # FC encoder embedding
+        # patches = self.fc_embed2(T(self.fc_embed1(patches)))
+
+
+
         # PreNorm
         patches = self.encoder_pre_norm(patches)
         #majority vote [batch, num , 1]
@@ -94,6 +113,7 @@ class dozerformer_Encoder(nn.Module):
 
         # PostNorm
         encoder_output = self.encoder_norm(encoder_output)
+        # encoder_output = self.projection(encoder_output)
 
         # skip connection
         encoder_output = rearrange(encoder_output,

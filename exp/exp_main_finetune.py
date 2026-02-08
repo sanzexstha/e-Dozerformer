@@ -41,7 +41,13 @@ class Exp_Main(Exp_Basic):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        optimizer = optim.Adam(self.model.parameters(), lr=self.args.learning_rate, betas=(0.9, 0.99))
+        optimizer = optim.Adam(self.model.parameters(), lr=self.args.learning_rate, betas=(0.9, 0.99) , )
+        # optimizer = torch.optim.AdamW([
+        #     {"params": self.model.encoder_seasonal.parameters(), "lr": self.args.learning_rate},
+        #     {"params": self.model.trend_model.parameters(), "lr": self.args.learning_rate},
+        #     {"params": self.model.decomp_multi.alpha_logit, "lr": self.args.learning_rate * 10},
+        # ], betas=(0.9, 0.99))
+
         return optimizer
 
     def _select_LR_scheduler(self, optimizer):
@@ -83,13 +89,22 @@ class Exp_Main(Exp_Basic):
             self.model.train()
 
             train_loss = []
-            for i, (batch_x, batch_y, batch_label) in enumerate(train_loader):
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label) in enumerate(train_loader):
                 optimizer.zero_grad()
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+                batch_cycle = batch_cycle.int().to(self.device)
+                if 'PEMS' in self.args.data or 'Solar' in self.args.data:
+                    batch_x_mark = None
+                    batch_y_mark = None
+                else:
+                    batch_x_mark = batch_x_mark.float().to(self.device)
+                    batch_y_mark = batch_y_mark.float().to(self.device)
                 # from utils.tools import Cal_FLOPs
                 #
                 # Cal_FLOPs(self.model, input[[0]])
 
-                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_label, self.args)
+                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, self.args)
                 # if i == 0:
                 #     # e.g., first encoder layer’s attention
                 #     print(f"QK FLOPs = {self.model.encoder_seasonal.encoder.attn_layers[0].attention.inner_attention.flops_accum.item():.2f} MFLOPS")
@@ -143,8 +158,8 @@ class Exp_Main(Exp_Basic):
         total_loss = []
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_label) in enumerate(vali_loader):
-                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_label,  self.args)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label) in enumerate(vali_loader):
+                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label,  self.args)
 
                 outputs = outputs.detach().cpu()
                 batch_y = batch_y.detach().cpu()
@@ -170,8 +185,8 @@ class Exp_Main(Exp_Basic):
 
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_label) in enumerate(test_loader):
-                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_label, self.args)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label) in enumerate(test_loader):
+                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, self.args)
 
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
