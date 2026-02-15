@@ -108,7 +108,7 @@ class DozerAttention(nn.Module):
             key=keys,
             value=values,
             attn_mask=attn_mask,  # bool, [B, H, L_Q, L_K]
-            attn_bias=attn_bias,
+            attn_bias=None,
             softmax_scale=scale,
         )
         # self.flops_accum = flops / 1e6
