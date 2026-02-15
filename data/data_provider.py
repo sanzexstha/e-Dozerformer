@@ -1,13 +1,14 @@
-from data.data_loader import Dataset_MTS, Dataset_ETT_hour
+from data.data_loader import Dataset_MTS, Dataset_ETT_hour, Dataset_ETT_minute
 from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy
 import random
 data_dict = {
     'ETTh1_labeled': Dataset_ETT_hour,
-    # 'ETTh2': Dataset_ETT_hour,
-    # 'ETTm1': Dataset_ETT_minute,
-    # 'ETTm2': Dataset_ETT_minute,
+    'ETTh2_labeled': Dataset_ETT_hour,
+    'ETTm1_labeled': Dataset_ETT_minute,
+    'ETTm2_labeled': Dataset_ETT_minute,
+    'Weather_labeled': Dataset_MTS,
     # 'Solar': Dataset_Solar,
     # 'PEMS': Dataset_PEMS,
     # 'custom': Dataset_Custom,

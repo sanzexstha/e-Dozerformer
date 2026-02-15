@@ -106,6 +106,7 @@ class dozerformer_Encoder(nn.Module):
         # T = nn.Tanh()
         # # # EFE embedding
         # patches = self.fc_embed2(T(self.fc_embed1(patches)))
+
         B, L, d_model = patches.shape
 
         # phase: (B,)
@@ -116,7 +117,9 @@ class dozerformer_Encoder(nn.Module):
         phase_emb = self.phase_embedding(phase_post)  # Phase embedding
         joint_emb = self.joint_embedding(phase_pre).reshape(B, L, self.d_model)  # Joint Patch-Phase embedding
 
-        patches =  patches + patch_emb + phase_emb + joint_emb
+        # patches =  patches + patch_emb + phase_emb + joint_emb
+
+
 
         # PreNorm
         patches = self.encoder_pre_norm(patches)

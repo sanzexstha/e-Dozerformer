@@ -199,6 +199,20 @@ def Cal_FLOPs(model, batch_x, dec_inp, batch_label):
     # print(f"FLOPs: {flops}, Params: {params / 1e6:.3f} M")
     return 0
 
+# attn_mask: bool tensor, True = attend, False = don't attend
+# output attn_bias: same dtype/device as q, with 0 for allowed, big negative for blocked
+def mask_to_bias(attn_mask: torch.Tensor, q: torch.Tensor, neg_val: float | None = None):
+    attn_mask = attn_mask.to(device=q.device)
+
+    if neg_val is None:
+        # safe default for fp16/bf16 kernels (avoid -inf sometimes)
+        neg_val = -1e4 if q.dtype == torch.float16 else -1e9
+
+    attn_bias = torch.zeros_like(attn_mask, dtype=q.dtype, device=q.device)
+    attn_bias = attn_bias.masked_fill(~attn_mask, neg_val)
+    return attn_bias
+
+
 
 
 def process_one_batch(model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, args):

@@ -87,6 +87,9 @@ def main():
     parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
 
+    parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
+    parser.add_argument('--u_size', type=int, default=4, help='u')
+
 
 
     args = parser.parse_args()
@@ -109,7 +112,7 @@ def main():
     args.d_ff = args.embed_dim*args.n_heads if args.d_ff == None else args.d_ff
     args.output_attention = False
 
-    # args.wandb = True
+    # args.wandb = False
 
     # Optimization's parameters
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
@@ -135,8 +138,8 @@ def main():
 
         'electricity': {'data': 'electricity/electricity.csv', 'data_dim': 321, 'split': [0.7, 0.1, 0.2]},
         'electricity_labeled': {'data': 'electricity/electricity_labeled.csv', 'data_dim': 321, 'split': [0.7, 0.1, 0.2]},
-        'Weather': {'data': 'STEE/weather.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
-        'Weather_labeled': {'data': 'STEE/Weather_labeled.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
+        'Weather': {'data': 'weather/weather.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
+        'Weather_labeled': {'data': 'weather/weather_labeled.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
 
         'ILI': {'data': 'national_illness.csv', 'data_dim': 7, 'split': [0.7, 0.1, 0.2]},
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},

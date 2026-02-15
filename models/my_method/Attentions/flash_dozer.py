@@ -3,6 +3,7 @@ import torch.nn as nn
 from math import sqrt
 from einops import repeat
 from flash_sparse_attn import flash_sparse_attn_func_auto
+from utils.tools import mask_to_bias
 
 class DozerAttention(nn.Module):
     def __init__(self, local_window, stride, rand_rate, vary_len, pred_len,
@@ -19,6 +20,8 @@ class DozerAttention(nn.Module):
         self.in_channel = in_channel
         self.output_attention = output_attention
         self.dropout = nn.Dropout(attention_dropout)
+        self.base_mask = None
+        self.adapt_mask = None
         # self.register_buffer("flops_accum", torch.zeros(1))
 
 
@@ -35,6 +38,7 @@ class DozerAttention(nn.Module):
         # base local/stride mask: [L_Q, L_K]
         dozer_mask = torch.zeros(L_Q, L_K, device=queries.device, dtype=torch.bool)
 
+
         if L_Q == L_K:
             if self.local_window:
                 for w_idx in range(self.local_window//2+1):
@@ -48,15 +52,29 @@ class DozerAttention(nn.Module):
                     dozer_mask = torch.diagonal_scatter(dozer_mask, torch.ones(L_Q - w_idx), -w_idx)
             b = dozer_mask.detach().cpu().numpy()
             # vectorized content-aware mask
-            labels = x_label[:, :, 0]  # [batch_size, L_Q]
+            labels = None
+            labels = x_label[:, :, 0].to(torch.bool)  # [batch_size, L_Q]
             adapt_mask = labels.unsqueeze(2).eq(labels.unsqueeze(1))  # [batch_size, L_Q, L_K], bool
+            base_mask = None
+
+            # labels: [B, L] (from x_label[:, :, 0])
+            # labels = x_label[:, :, 0].to(torch.bool)  # if label are 0/1
+            #
+            # # only tokens with label==1 are considered "extreme"
+            # extreme = (labels == 1)    # [B, L] bool
+            #
+            # # extremes-only content mask: allow attention only among "1" tokens
+            # extreme_mask = extreme.unsqueeze(2) & extreme.unsqueeze(1)  # [B, L, L] bool
+
+            # OR with structural dozer mask
+            # base_mask = extreme_mask | dozer_mask.unsqueeze(0)  # [B, L, L] bool
 
             # combine locality + content
             # adapt mask perform better than combination with dozer_mask
-            # base_mask = adapt_mask & dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
+            # base_mask = adapt_mask | dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
             full_mask = torch.ones(L_Q, L_K, device=queries.device, dtype=torch.bool)
             # base_mask = full_mask.unsqueeze(0).expand(batch_size, -1, -1)
-            base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
+            base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1).clone()
 
             # base_mask = adapt_mask  # [batch_size, L_Q, L_K]
 
@@ -67,6 +85,10 @@ class DozerAttention(nn.Module):
             # attn_mask = adapt_dozer_mask.unsqueeze(1)c
             attn_mask = adapt_dozer_mask.unsqueeze(1).expand(-1, H, -1, -1)
 
+            adapt_mask = repeat(adapt_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
+            adapt_mask = adapt_mask.unsqueeze(1).expand(-1, H, -1, -1)
+
+
 
         # Run Flash Sparse Attention
         flash_sparse_attn_func = flash_sparse_attn_func_auto(backend="cuda")
@@ -75,6 +97,7 @@ class DozerAttention(nn.Module):
         queries = queries.to(target_dtype)
         keys    = keys.to(target_dtype)
         values  = values.to(target_dtype)
+        attn_bias = mask_to_bias(adapt_mask, queries)  # query is your Q tensor
 
         # active = attn_mask.to(torch.bool).sum()
 
@@ -85,7 +108,7 @@ class DozerAttention(nn.Module):
             key=keys,
             value=values,
             attn_mask=attn_mask,  # bool, [B, H, L_Q, L_K]
-            attn_bias=None,
+            attn_bias=attn_bias,
             softmax_scale=scale,
         )
         # self.flops_accum = flops / 1e6

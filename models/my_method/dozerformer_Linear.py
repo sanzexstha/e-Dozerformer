@@ -7,8 +7,7 @@ from models.my_method.dozerformer_EncDec import dozerformer_Encoder, dozerformer
 
 from models.REVIN import RevIN
 from models.my_method.build_model_util import series_decomp_multi, series_decomp_multi_learnable
-from models.my_method.trend import TrendMSResidual
-
+from models.my_method.trend import AdaptiveSTFusion, TinyStableSTFusion, AdaptiveSTFusionV2, SKFusionST
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -27,6 +26,7 @@ class Model(nn.Module):
         self.decoder_embed_dim = configs.decoder_embed_dim
         self.dropout = configs.dropout
         self.epoch = 0
+        self.fusion = configs.fusion
         # self.d_model = 256
         configs.activation = 'gelu'
 
@@ -45,6 +45,31 @@ class Model(nn.Module):
         self.output_layer_1 = nn.Linear(configs.seq_len, configs.pred_len)
         self.trend_model = nn.Linear(configs.seq_len, configs.pred_len)
 
+        if self.fusion == 'EIA':
+            self.attention_mlp = nn.Sequential(
+                nn.Linear(self.in_channel * 2, self.in_channel),
+                nn.GELU(),
+                nn.Dropout(0.1),
+                nn.Linear(self.in_channel, self.in_channel),
+                nn.Sigmoid()
+            )
+            self._init_eia_weights()
+        elif self.fusion == 'ADT':
+            self.st_fusion = SKFusionST(self.in_channel)
+
+    def _init_fuse_weights(self):
+        for layer in self.fuse_logit:
+            if isinstance(layer, nn.Linear):
+                nn.init.zeros_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+    def _init_eia_weights(self):
+        for layer in self.attention_mlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.zeros_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
 
 
     def forward(self, x_enc, x_mark_enc, seq_y_mark, x_dec, x_label, phase,
@@ -70,8 +95,15 @@ class Model(nn.Module):
         trend_predict = self.trend_model(trend_enc)
         trend_predict = rearrange(trend_predict, 'b ts_d seq_len -> b seq_len ts_d')
 
-        # Concate Trend and Seasonal
-        final_predict = seasonal_predict + trend_predict
+        # # Concate Trend and Seasonal
+        if self.fusion == 'EIA':
+            fusion_weights = self.attention_mlp(torch.cat([seasonal_predict, trend_predict], dim=-1))
+            final_predict = 2 * (fusion_weights * seasonal_predict + (1 - fusion_weights) * trend_predict)
+        elif self.fusion == 'ADT':
+            final_predict = self.st_fusion(seasonal_predict, trend_predict)
+        else:
+            final_predict = seasonal_predict + trend_predict
+
         # Inverse Revin
         final_predict = self.revin_layer(final_predict, 'denorm')
         return final_predict
