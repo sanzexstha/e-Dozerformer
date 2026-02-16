@@ -77,17 +77,17 @@ class dozerformer_Encoder(nn.Module):
             norm_layer=None
         )
 
-        self.fc_embed1 = nn.Linear(self.patch_size * configs.embed_dim, 512)
-        self.fc_embed2 = nn.Linear(512, self.patch_size * configs.embed_dim)
-        self.seg_num = self.seq_len // self.patch_size
-
-
-        self.patch_embedding = nn.Parameter(torch.zeros(self.seg_num, self.d_model))
-        self.phase_embedding = nn.Embedding(self.cycle_len, self.d_model)
-        nn.init.xavier_normal_(self.phase_embedding.weight)
-        self.joint_embedding = nn.Embedding(self.cycle_len, self.seg_num  * self.d_model)
-        nn.init.xavier_normal_(self.joint_embedding.weight)
-        nn.init.xavier_normal_(self.patch_embedding)
+        # self.fc_embed1 = nn.Linear(self.patch_size * configs.embed_dim, 512)
+        # self.fc_embed2 = nn.Linear(512, self.patch_size * configs.embed_dim)
+        # self.seg_num = self.seq_len // self.patch_size
+        #
+        #
+        # self.patch_embedding = nn.Parameter(torch.zeros(self.seg_num, self.d_model))
+        # self.phase_embedding = nn.Embedding(self.cycle_len, self.d_model)
+        # nn.init.xavier_normal_(self.phase_embedding.weight)
+        # self.joint_embedding = nn.Embedding(self.cycle_len, self.seg_num  * self.d_model)
+        # nn.init.xavier_normal_(self.joint_embedding.weight)
+        # nn.init.xavier_normal_(self.patch_embedding)
 
 
         # self.projection = nn.Linear(self.d_model, self.patch_size * configs.embed_dim)
@@ -107,15 +107,15 @@ class dozerformer_Encoder(nn.Module):
         # # # EFE embedding
         # patches = self.fc_embed2(T(self.fc_embed1(patches)))
 
-        B, L, d_model = patches.shape
+        # B, L, d_model = patches.shape
 
         # phase: (B,)
-        phase_pre = phase.repeat_interleave(self.in_channel)  # (B*ts_d,) = (224,)
-        phase_post = phase_pre.view(-1, 1).expand(-1, L)  # (224, 30) => (B, L)
+        # phase_pre = phase.repeat_interleave(self.in_channel)  # (B*ts_d,) = (224,)
+        # phase_post = phase_pre.view(-1, 1).expand(-1, L)  # (224, 30) => (B, L)
 
-        patch_emb = self.patch_embedding.expand(B, L, -1)  # Patch embedding
-        phase_emb = self.phase_embedding(phase_post)  # Phase embedding
-        joint_emb = self.joint_embedding(phase_pre).reshape(B, L, self.d_model)  # Joint Patch-Phase embedding
+        # patch_emb = self.patch_embedding.expand(B, L, -1)  # Patch embedding
+        # phase_emb = self.phase_embedding(phase_post)  # Phase embedding
+        # joint_emb = self.joint_embedding(phase_pre).reshape(B, L, self.d_model)  # Joint Patch-Phase embedding
 
         # patches =  patches + patch_emb + phase_emb + joint_emb
 

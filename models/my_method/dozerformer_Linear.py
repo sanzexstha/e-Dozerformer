@@ -37,14 +37,12 @@ class Model(nn.Module):
         self.decomp_multi = series_decomp_multi(configs.moving_avg)
         # Seasonal encoder and decoder
         self.encoder_seasonal = dozerformer_Encoder(configs, mode='Seasonal')
-        self.decoder_seasonal = dozerformer_Decoder(configs, mode='Seasonal')
 
         self.output_layer_2 = nn.Conv2d(in_channels=self.embed_dim,
                                       out_channels=1,
                                       kernel_size=(1, 1))
         self.output_layer_1 = nn.Linear(configs.seq_len, configs.pred_len)
         self.trend_model = nn.Linear(configs.seq_len, configs.pred_len)
-
         if self.fusion == 'EIA':
             self.attention_mlp = nn.Sequential(
                 nn.Linear(self.in_channel * 2, self.in_channel),

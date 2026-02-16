@@ -84,9 +84,9 @@ class DozerAttention(nn.Module):
             # Final mask for FSA: [B, H, L_Q, L_K] (bool)
             # attn_mask = adapt_dozer_mask.unsqueeze(1)c
             attn_mask = adapt_dozer_mask.unsqueeze(1).expand(-1, H, -1, -1)
-
-            adapt_mask = repeat(adapt_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
-            adapt_mask = adapt_mask.unsqueeze(1).expand(-1, H, -1, -1)
+            #
+            # adapt_mask = repeat(adapt_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
+            # adapt_mask = adapt_mask.unsqueeze(1).expand(-1, H, -1, -1)
 
 
 
@@ -97,7 +97,7 @@ class DozerAttention(nn.Module):
         queries = queries.to(target_dtype)
         keys    = keys.to(target_dtype)
         values  = values.to(target_dtype)
-        attn_bias = mask_to_bias(adapt_mask, queries)  # query is your Q tensor
+        # attn_bias = mask_to_bias(adapt_mask, queries)  # query is your Q tensor
 
         # active = attn_mask.to(torch.bool).sum()
 

@@ -41,18 +41,17 @@
 # Random Seeds
 seeds=(2023)
 fusions=(SUM EIA ADT)
-
 lr=5e-5
 model=dozerformer_Linear
 patch_size=24
 local_window=3
 stride=7
 vary_len=1
-
+# shellcheck disable=SC2068
 for fusion in ${fusions[@]}
 do
   echo "Running fusion: $fusion"
-
+  # shellcheck disable=SC2068
   for seed in ${seeds[@]}
   do
     echo "Seed: $seed"

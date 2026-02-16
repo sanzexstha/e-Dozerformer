@@ -89,6 +89,7 @@ def main():
 
     parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
     parser.add_argument('--u_size', type=int, default=4, help='u')
+    parser.add_argument('--f_version', type=str, default="revised", help='u')
 
 
 
