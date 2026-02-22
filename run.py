@@ -10,6 +10,8 @@ import wandb
 
 
 def main():
+    def str2bool(v):
+        return str(v).lower() in ('true', '1', 'yes')
     parser = argparse.ArgumentParser(description='Dozerformer')
     parser.add_argument('--mode', default='finetune', type=str, help='Name of model to train, options: [pretrain, finetune, Transformer]')
     parser.add_argument('--data', type=str, required=False, default='ETTh1_labeled',
@@ -33,7 +35,6 @@ def main():
                         help='train/val/test split, can be ratio or number')
     parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
     parser.add_argument('--data_dim', type=int, default=7, help='Number of dimensions of the MTS data (D)')
-
 
     # Model parameters
     parser.add_argument('--embed_dim', type=int, default=8, help='encoder input size')
@@ -60,8 +61,6 @@ def main():
     parser.add_argument('--factor', type=int, default=1, help='attn factor. Autoformer')
     parser.add_argument('--Fedformer_version', type=str, default='None', help='Fouriers, Wavelets')
 
-
-
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=32, help='batch size of train input data')
     parser.add_argument('--seed', type=int, default=2023, help='Random Seed')
@@ -77,7 +76,9 @@ def main():
     parser.add_argument('--train_epochs', type=int, default=20, help='train epochs')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
-    parser.add_argument('--wandb', type=bool, default=False, help='flag for whether use wandb')
+
+    parser.add_argument('--wandb', type=str2bool, default=False,
+                        help='flag for whether use wandb')
     parser.add_argument('--abla_type', type=str, default='False', help='ablation study type')
 
     parser.add_argument('--freq', type=str, default='h',
@@ -87,16 +88,16 @@ def main():
     parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
 
+    #fusion
     parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
-    parser.add_argument('--u_size', type=int, default=4, help='u')
-    parser.add_argument('--f_version', type=str, default="revised", help='u')
+    parser.add_argument('--u_size', type=int, default=2, help='u')
+    parser.add_argument('--f_version', type=str, default="sk_v2", help='u')
 
+    parser.add_argument('--mask', type=str, default='extreme_mask', help='type of sparse mask')
 
+    parser.add_argument('--exp_run', type=str, default='mask_comp_v2', help='identifier for experiments')
 
     args = parser.parse_args()
-    # args.patch
-    # patch_labels = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1,
-    #                 0]
 
     # fix the seed for reproducibility, default 2023
     seed = args.seed
@@ -167,7 +168,7 @@ def main():
     if args.is_training:
         for ii in range(args.itr):
             # setting record of experiments
-            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_segl{}_dm{}_nh{}_el{}_dl{}_df{}'.format(
+            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_segl{}_dm{}_nh{}_el{}_dl{}_mask_{}'.format(
                 args.mode,
                 args.model,
                 args.data,
@@ -180,7 +181,8 @@ def main():
                 args.n_heads,
                 args.encoder_depth,
                 args.decoder_depth,
-                1)
+                args.mask,
+                )
 
             exp = Exp(args)  # set experiments
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
@@ -216,7 +218,6 @@ def main():
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.test(setting, test=1)
         torch.cuda.empty_cache()
-
 
 if __name__ == "__main__":
     main()

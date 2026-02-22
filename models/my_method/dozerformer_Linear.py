@@ -7,7 +7,7 @@ from models.my_method.dozerformer_EncDec import dozerformer_Encoder, dozerformer
 
 from models.REVIN import RevIN
 from models.my_method.build_model_util import series_decomp_multi, series_decomp_multi_learnable
-from models.my_method.trend import AdaptiveSTFusion, TinyStableSTFusion, AdaptiveSTFusionV2, SKFusionST
+from models.my_method.trend import AdaptiveSTFusion, TinyStableSTFusion, AdaptiveSTFusionV2, SKFusionST ,EIADiffGate, FusionTransfer, SKFusionST_v2
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -31,7 +31,6 @@ class Model(nn.Module):
         configs.activation = 'gelu'
 
         self.revin_layer = RevIN(self.in_channel, affine=True, subtract_last=False)
-        self.revin_layer_dec = RevIN(self.in_channel, affine=True, subtract_last=False)
 
         # Decomposition
         self.decomp_multi = series_decomp_multi(configs.moving_avg)
@@ -53,14 +52,7 @@ class Model(nn.Module):
             )
             self._init_eia_weights()
         elif self.fusion == 'ADT':
-            self.st_fusion = SKFusionST(self.in_channel)
-
-    def _init_fuse_weights(self):
-        for layer in self.fuse_logit:
-            if isinstance(layer, nn.Linear):
-                nn.init.zeros_(layer.weight)
-                if layer.bias is not None:
-                    nn.init.zeros_(layer.bias)
+            self.st_fusion = SKFusionST_v2(C=self.in_channel)
 
     def _init_eia_weights(self):
         for layer in self.attention_mlp:
@@ -68,7 +60,6 @@ class Model(nn.Module):
                 nn.init.zeros_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
-
 
     def forward(self, x_enc, x_mark_enc, seq_y_mark, x_dec, x_label, phase,
                 enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None

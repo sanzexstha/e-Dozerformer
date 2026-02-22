@@ -9,6 +9,7 @@ data_dict = {
     'ETTm1_labeled': Dataset_ETT_minute,
     'ETTm2_labeled': Dataset_ETT_minute,
     'Weather_labeled': Dataset_MTS,
+    'Exchange_labeled': Dataset_MTS,
     # 'Solar': Dataset_Solar,
     # 'PEMS': Dataset_PEMS,
     # 'custom': Dataset_Custom,

@@ -22,12 +22,16 @@ def labels_to_segments(y, patch_size, in_channel=None):
 
     # count number of 1s in each patch
     count_ones = reduce(y_seg, 'b seg_num seg_len c -> b seg_num c', 'sum')  # (B, S, 1)
+    #
+    # # # threshold rule: if more than 1 '1' in the patch
+    # y_major = (count_ones >= 1).to(y.dtype)
 
-    # threshold rule: if more than 1 '1' in the patch
-    y_major = (count_ones >= 1).to(y.dtype)
+    # # compute percentage of extreme points in each patch
+    patch_len = y_seg.shape[2]
+    extreme_ratio = count_ones / patch_len
 
-    # if in_channel is not None:
-    #     y_major = repeat(y_major, 'b seg_num c -> (b ts_d) seg_num c', ts_d=in_channel)  # (out_batch, S, 1)
+    # majority vote (more than 50%)
+    y_major = (extreme_ratio >= 0.1).to(y.dtype)
 
     return y_major
 
@@ -43,8 +47,6 @@ class dozerformer_Encoder(nn.Module):
         self.cycle_len = configs.cycle
         self.embed_dim = configs.embed_dim
         self.d_model = configs.embed_dim*configs.patch_size
-        # self.d_model = 512
-        # self.d_ff = 512
         self.d_ff = configs.d_ff*configs.patch_size
         # Embedding是非常重要的问题
         self.encoder_val_embedding = DI_embedding(configs.patch_size, configs.embed_dim, configs.dropout)
@@ -63,7 +65,7 @@ class dozerformer_Encoder(nn.Module):
                 DozerAttentionLayer(
                     DozerAttention(configs.local_window, configs.stride, configs.rand_rate,
                                     configs.vary_len, self.encoder_segment.seg_num, self.in_channel,
-                                    False,
+                                    False, mask=configs.mask,
                                     attention_dropout=configs.dropout,
                                     output_attention=configs.output_attention),
                     self.d_model,
@@ -119,8 +121,6 @@ class dozerformer_Encoder(nn.Module):
 
         # patches =  patches + patch_emb + phase_emb + joint_emb
 
-
-
         # PreNorm
         patches = self.encoder_pre_norm(patches)
         #majority vote [batch, num , 1]
@@ -172,7 +172,7 @@ class dozerformer_Decoder(nn.Module):
                     DozerAttentionLayer(
                         DozerAttention(configs.local_window, configs.stride, configs.rand_rate, configs.vary_len,
                                        pred_segs,
-                                       False,
+                                       False, mask=configs.mask,
                                        attention_dropout=configs.dropout,
                                        output_attention=False),
                         d_model,
@@ -181,7 +181,7 @@ class dozerformer_Decoder(nn.Module):
                     DozerAttentionLayer(
                         DozerAttention(configs.local_window, configs.stride, configs.rand_rate, configs.vary_len,
                                        pred_segs,
-                                       False,
+                                       False, mask=configs.mask,
                                        attention_dropout=configs.dropout,
                                        output_attention=False),
                         d_model,

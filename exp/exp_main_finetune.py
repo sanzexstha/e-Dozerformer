@@ -33,21 +33,12 @@ class Exp_Main(Exp_Basic):
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
 
-    def _load_pretrain_model(self):
-        self.model = hierarchical_load_pretrain_model(self.model, self.args)
-
     def _get_data(self, flag):
         data_set, data_loader = data_provider(self.args, flag)
         return data_set, data_loader
 
     def _select_optimizer(self):
-        optimizer = optim.Adam(self.model.parameters(), lr=self.args.learning_rate, betas=(0.9, 0.99) , )
-        # optimizer = torch.optim.AdamW([
-        #     {"params": self.model.encoder_seasonal.parameters(), "lr": self.args.learning_rate},
-        #     {"params": self.model.trend_model.parameters(), "lr": self.args.learning_rate},
-        #     {"params": self.model.decomp_multi.alpha_logit, "lr": self.args.learning_rate * 10},
-        # ], betas=(0.9, 0.99))
-
+        optimizer = optim.Adam(self.model.parameters(), lr=self.args.learning_rate, betas=(0.9, 0.99))
         return optimizer
 
     def _select_LR_scheduler(self, optimizer):
@@ -149,8 +140,9 @@ class Exp_Main(Exp_Basic):
                 break
 
         best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path))
-
+        # self.model.load_state_dict(torch.load(best_model_path))
+        checkpoint = torch.load(best_model_path, map_location=self.device)
+        self.model.load_state_dict(checkpoint)
         return self.model
 
     def vali(self, vali_data, vali_loader, criterion, epoch=None):
