@@ -188,12 +188,60 @@ def build_dozer_mask(L_Q, L_K, local_window=None, stride=None, device=None):
 
         return mask
 
+def build_dozer_ext_mask_v1(L_Q, L_K, x_label, local_window=None, stride=None, device=None):
+    device = device or "cpu"
+    B = x_label.shape[0]
+
+    with torch.no_grad():
+        i = torch.arange(L_Q, device=device)[:, None]
+        j = torch.arange(L_K, device=device)[None, :]
+        d = (i - j).abs()
+
+        # 1. Normal-query mask: full dozer (local window + stride/seasonal)
+        normal_mask = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
+        if local_window:
+            w = local_window // 2
+            normal_mask |= (d <= w)
+        if stride:
+            s = stride + 1
+            normal_mask |= (d % s == 0)
+        normal_mask = normal_mask.unsqueeze(0).expand(B, -1, -1)   # (B, L_Q, L_K)
+
+        # 2. Extreme-query mask: self + extreme keys within local window + seasonal
+        is_extreme_k = (x_label.squeeze(-1) == 1).unsqueeze(1)     # (B, 1,   L_K)
+
+        # always attend to self
+        self_attn = (d == 0).unsqueeze(0)                           # (1, L_Q, L_K)
+
+        # extreme keys within local window
+        if local_window:
+            w = local_window // 2
+            within_window = (d <= w).unsqueeze(0)                   # (1, L_Q, L_K)
+            extreme_local = within_window & is_extreme_k            # (B, L_Q, L_K)
+        else:
+            extreme_local = torch.zeros((B, L_Q, L_K), device=device, dtype=torch.bool)
+
+        # seasonal/stride component (same as normal)
+        seasonal = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
+        if stride:
+            s = stride + 1
+            seasonal |= (d % s == 0)
+        seasonal = seasonal.unsqueeze(0)                            # (1, L_Q, L_K)
+
+        extreme_mask = self_attn | extreme_local | seasonal         # (B, L_Q, L_K)
+
+        # 3. Select per query based on label
+        is_extreme_q = (x_label == 1)                              # (B, L_Q, 1)
+        final_mask = torch.where(is_extreme_q, extreme_mask, normal_mask)
+
+    return final_mask   # (B, L_Q, L_K)
+
 def generate_full_mask(B, L_Q, L_K, device=None):
     with torch.no_grad():
         mask = torch.ones((L_Q, L_K), device=device, dtype=torch.bool)
         return mask.repeat(B, 1, 1)
 
-import torch
+
 
 class ExtremeAndDozerMask:
     """
@@ -255,16 +303,15 @@ class SparseMask:
                 extreme_0_1 = ExtremeMask(self.x_label).mask
                 extreme_1 = ExtremeOnlyMask(self.x_label).mask
                 self._mask = ConditionalExtremeDozerMask(self.x_label, dozer_mask, extreme_0_1, extreme_1).mask
-            elif mask == 'dozer_ext_0_v2':
-                self._mask = ConditionalExtremeDozerMaskV2(self.x_label, dozer_mask, self.local_window).mask
-            elif mask == 'dozer_ext_0_v3':
-                self._mask = ConditionalExtremeDozerMaskV3(self.x_label, dozer_mask, self.local_window, ext_key_window=12).mask
-            elif mask == 'dozer_ext_0_v4':
-                self._mask = DozerExtremeHaloMaskV3(self.x_label, dozer_mask).mask
             elif mask == 'dozer_ext_null':
                 self._mask = ExtremeDozerSparseMask(ExtremeMask(self.x_label).mask, dozer_mask, self.x_label).mask
             elif mask == 'dozer_AND_ext':
                 self._mask = ExtremeAndDozerMask(self.x_label, dozer_mask).mask
+            elif mask == 'dozer_ext_v1':
+                self._mask = build_dozer_ext_mask_v1(self.L_Q, self.L_K, self.x_label,
+                local_window=self.local_window,
+                stride=self.stride,
+                device=self.device)
             elif mask == 'full_mask':
                 self._mask = generate_full_mask(self.B, self.L_Q, self.L_K, self.device)
             else:
@@ -273,7 +320,8 @@ class SparseMask:
         return self._mask
 
     def visualize_mask(self, mask='dozer'):
-        MASK_TYPES = ['extreme_mask', 'dozer', 'dozer_ext_only', 'full_mask', 'dozer_ext_0', 'dozer_ext_null', 'dozer_AND_ext', 'dozer_ext_0_v2', 'dozer_ext_0_v3', 'dozer_ext_0_v4']
+        MASK_TYPES = ['extreme_mask', 'dozer', 'dozer_ext_only', 'full_mask', 'dozer_ext_0',
+                      'dozer_ext_null', 'dozer_AND_ext', 'dozer_ext_v1']
 
         if mask == 'all':
             results = {}
@@ -314,231 +362,6 @@ def build_local_band_mask(L_Q, L_K, local_window, device):
     w = local_window // 2
     return (d <= w)
 
-
-class ConditionalExtremeDozerMaskV2:
-    """
-    Desired behavior:
-    - If query is EXTREME: attend only within local-window band (no stride far links).
-    - If query is NORMAL: follow dozer mask, but block extreme KEYS unless they are local-window-close.
-    """
-    def __init__(self, x_label, dozer_mask, local_window, device=None, extreme_value=1):
-        """
-        x_label: (B, L, ...) where x_label[...,0] holds 0/1 labels
-        dozer_mask: (L_Q, L_K) bool (structural: local OR stride)
-        local_window: int, must match the local window used to define "near"
-        """
-        if device is None:
-            device = x_label.device
-
-        with torch.no_grad():
-            labels = x_label[..., 0].to(torch.long)           # (B, L_Q) assuming L_Q == L
-            B, L_Q = labels.shape
-            # infer L_K from dozer_mask
-            if dozer_mask.dim() != 2:
-                raise ValueError(f"Expected dozer_mask (L_Q,L_K), got {tuple(dozer_mask.shape)}")
-            L_K = dozer_mask.size(1)
-            if dozer_mask.size(0) != L_Q:
-                raise ValueError(f"dozer_mask first dim {dozer_mask.size(0)} != labels length {L_Q}")
-
-            q_is_ext = (labels == extreme_value)              # (B, L_Q)
-            # key labels (assume same timeline); if you ever have different key labels, pass them separately
-            k_is_ext = (labels == extreme_value)              # (B, L_K) if L_K==L_Q; else this assumption breaks
-            if L_K != L_Q:
-                raise ValueError("L_K != L_Q: need separate key labels to handle this case correctly.")
-
-            # Expand dozer to batch
-            dozer_b = dozer_mask.to(device).unsqueeze(0).expand(B, -1, -1)   # (B,L_Q,L_K)
-
-            # Local band (only the local-window section of dozer)
-            local_band = build_local_band_mask(L_Q, L_K, local_window, device=device)  # (L_Q,L_K)
-            local_b = local_band.unsqueeze(0).expand(B, -1, -1)                          # (B,L_Q,L_K)
-
-            # 1) For EXTREME queries: only local band, nothing else
-            mask_extreme_queries = local_b                                             # (B,L_Q,L_K)
-
-            # 2) For NORMAL queries: dozer, but if key is extreme, require local band
-            # Allow = dozer AND ( (key is not extreme) OR (key is extreme AND local) )
-            k_ext_b = k_is_ext.unsqueeze(1).expand(B, L_Q, L_K)                         # (B,L_Q,L_K)
-            allow_extreme_keys_only_if_local = (~k_ext_b) | (k_ext_b & local_b)
-            mask_normal_queries = dozer_b & allow_extreme_keys_only_if_local            # (B,L_Q,L_K)
-
-            # Select per-query-row based on whether query token is extreme
-            q_ext_b = q_is_ext.unsqueeze(2).expand(B, L_Q, L_K)                          # (B,L_Q,L_K)
-            self._mask = torch.where(q_ext_b, mask_extreme_queries, mask_normal_queries).to(device)
-
-    @property
-    def mask(self):
-        return self._mask
-
-import torch
-
-def build_distance_mask(L_Q, L_K, max_dist, device):
-    i = torch.arange(L_Q, device=device)[:, None]
-    j = torch.arange(L_K, device=device)[None, :]
-    d = (i - j).abs()
-    return (d <= max_dist)  # (L_Q, L_K) bool
-
-
-class ConditionalExtremeDozerMaskV3:
-    """
-    - Extreme queries: attend ONLY within local band (w_local).
-    - Normal queries:
-        * non-extreme keys: follow dozer mask
-        * extreme keys: allow if within w_ext (>= w_local), otherwise block
-    """
-    def __init__(
-        self,
-        x_label,
-        dozer_mask,         # (L,L) bool
-        local_window,       # int
-        ext_key_window=None,# int OR None: allowed window for extreme keys when query is normal
-        device=None,
-        extreme_value=1
-    ):
-        if device is None:
-            device = x_label.device
-
-        with torch.no_grad():
-            labels = x_label[..., 0].to(torch.long)      # (B, L)
-            B, L = labels.shape
-
-            if dozer_mask.dim() != 2 or dozer_mask.size(0) != L or dozer_mask.size(1) != L:
-                raise ValueError(f"Expected dozer_mask (L,L) matching labels length {L}, got {tuple(dozer_mask.shape)}")
-
-            # radii
-            if not local_window:
-                raise ValueError("local_window must be set for this mask design.")
-            w_local = local_window // 2
-
-            # if not provided, default: allow extreme keys only in local band
-            if ext_key_window is None:
-                w_ext = w_local
-            else:
-                w_ext = ext_key_window // 2 if ext_key_window >= 2 else 0
-                # ensure it's not smaller than local
-                w_ext = max(w_ext, w_local)
-
-            # query/key flags
-            q_is_ext = (labels == extreme_value)          # (B,L)
-            k_is_ext = (labels == extreme_value)          # (B,L)
-
-            # expand dozer mask to batch
-            dozer_b = dozer_mask.to(device).unsqueeze(0).expand(B, -1, -1)  # (B,L,L)
-
-            # distance masks
-            local_band = build_distance_mask(L, L, w_local, device=device)  # (L,L)
-            local_b = local_band.unsqueeze(0).expand(B, -1, -1)             # (B,L,L)
-
-            ext_band = build_distance_mask(L, L, w_ext, device=device)      # (L,L)
-            ext_b = ext_band.unsqueeze(0).expand(B, -1, -1)                 # (B,L,L)
-
-            # 1) EXTREME queries -> ONLY local band
-            mask_extreme_queries = local_b                                  # (B,L,L)
-
-            # 2) NORMAL queries:
-            # non-extreme keys -> dozer
-            # extreme keys     -> allowed only if within ext_b
-            k_ext_b = k_is_ext.unsqueeze(1).expand(B, L, L)                 # (B,L,L)
-            allow_keys = (~k_ext_b) | (k_ext_b & ext_b)                     # (B,L,L)
-            mask_normal_queries = dozer_b & allow_keys                      # (B,L,L)
-
-            # select per query row
-            q_ext_b = q_is_ext.unsqueeze(2).expand(B, L, L)                 # (B,L,L)
-            self._mask = torch.where(q_ext_b, mask_extreme_queries, mask_normal_queries)
-
-    @property
-    def mask(self):
-        return self._mask
-
-import torch
-
-def _distance_matrix(L, device):
-    i = torch.arange(L, device=device)[:, None]
-    j = torch.arange(L, device=device)[None, :]
-    return (i - j).abs()  # (L, L)
-
-class DozerExtremeHaloMaskV3:
-    """
-    NORMAL queries:
-      dozer
-      OR (extreme keys within extreme_key_radius_for_normal)
-      OR (halo-normal within halo_nn_radius, only if both tokens are in halo)
-
-    EXTREME queries:
-      dozer (local + stride)
-      OR (extra neighbor band within ext_query_neighbor_radius)
-    """
-    def __init__(
-        self,
-        x_label,                          # (B, L, 1+) labels in x_label[...,0]
-        dozer_mask,                       # (L, L) bool (local OR stride)
-        extreme_value=1,
-
-        # normal-query extras
-        extreme_key_radius_for_normal=4,  # normal q -> extreme k reach (distance in tokens)
-        halo_radius=3,                    # token is in halo if within this distance to any extreme token
-        halo_nn_radius=2,                 # within-halo normal-normal reach
-
-        # NEW: extreme-query local expansion
-        ext_query_neighbor_radius=2,      # extra band radius for extreme queries (>= local_radius)
-        device=None,
-    ):
-        device = device or x_label.device
-
-        with torch.no_grad():
-            labels = x_label[..., 0].to(torch.long)  # (B, L)
-            B, L = labels.shape
-
-            if dozer_mask.dim() != 2 or dozer_mask.shape != (L, L):
-                raise ValueError(f"dozer_mask must be (L,L) with L={L}, got {tuple(dozer_mask.shape)}")
-
-            q_is_ext = (labels == extreme_value)  # (B, L)
-            k_is_ext = (labels == extreme_value)  # (B, L)
-
-            dozer_b = dozer_mask.to(device).unsqueeze(0).expand(B, -1, -1)  # (B,L,L)
-
-            d = _distance_matrix(L, device=device)      # (L,L)
-            d_b = d.unsqueeze(0).expand(B, -1, -1)      # (B,L,L)
-
-            # -------------------------
-            # (A) Normal queries: extra reach to EXTREME KEYS
-            # -------------------------
-            ext_reach_b = (d_b <= extreme_key_radius_for_normal)            # (B,L,L)
-            k_ext_b = k_is_ext.unsqueeze(1).expand(B, L, L)                 # (B,L,L)
-            add_ext_keys = k_ext_b & ext_reach_b                            # (B,L,L)
-
-            # -------------------------
-            # (B) Halo: tokens near ANY extreme token
-            # -------------------------
-            big = L + 1
-            masked_d = d_b.masked_fill(~k_ext_b, big)                       # distances only to extreme keys
-            min_d_to_ext, _ = masked_d.min(dim=2)                           # (B,L)
-            in_halo = (min_d_to_ext <= halo_radius)                         # (B,L)
-
-            halo_band_b = (d_b <= halo_nn_radius)                           # (B,L,L)
-            q_halo_b = in_halo.unsqueeze(2).expand(B, L, L)
-            k_halo_b = in_halo.unsqueeze(1).expand(B, L, L)
-            add_halo_nn = q_halo_b & k_halo_b & halo_band_b                 # (B,L,L)
-
-            mask_normal = dozer_b | add_ext_keys | add_halo_nn
-
-            # -------------------------
-            # (C) Extreme queries: dozer + expanded neighbor band
-            # -------------------------
-            # extreme queries attend not only to dozer (local+stride)
-            # but also to neighboring keys around local band (thicker band).
-            ext_neighbor_b = (d_b <= ext_query_neighbor_radius)             # (B,L,L)
-            mask_extreme = dozer_b | ext_neighbor_b
-
-            # select per query row
-            q_ext_b = q_is_ext.unsqueeze(2).expand(B, L, L)
-            self._mask = torch.where(q_ext_b, mask_extreme, mask_normal)
-
-    @property
-    def mask(self):
-        return self._mask
-
-
 # B, L, _ = extreme_0_1.shape
 #
 # combined_mask = torch.zeros_like(extreme_0_1)
@@ -563,75 +386,30 @@ class DozerExtremeHaloMaskV3:
 # c_0_1 = combined_mask.detach().cpu().numpy()
 
 
-def build_dozer_mask_batched(
-    labels,                 # (B, L, 1) or (B, L)
-    local_window=None,
-    stride=None,
-    precursor_window=None,
-    recovery_window=None,
-    extreme_to_extreme=True,
-    is_training=True,
-    device=None
-):
-    device = device or labels.device
-
-    # squeeze last dim if needed → (B, L)
-    if labels.dim() == 3:
-        labels = labels.squeeze(-1)
-
-    B, L = labels.shape
+def build_extreme_mask(L_Q, L_K, x_label, local_window=None, device=None):
+    """
+    Extreme queries attend to:
+      1. ALL extreme keys globally (regardless of distance)
+      2. ALL keys within local window (normal or extreme, for local context)
+    """
+    device = device or "cpu"
+    B = x_label.shape[0]
 
     with torch.no_grad():
-        i = torch.arange(L, device=device)[None, :, None]  # (1, L, 1)
-        j = torch.arange(L, device=device)[None, None, :]  # (1, 1, L)
-        d = (i - j).abs()                                  # (1, L, L) → broadcasts over B
+        i = torch.arange(L_Q, device=device)[:, None]
+        j = torch.arange(L_K, device=device)[None, :]
+        d = (i - j).abs()
 
-        # base mask — same for all samples in batch
-        mask = torch.zeros((1, L, L), device=device, dtype=torch.bool)
-        mask = mask.expand(B, L, L).clone()                # (B, L, L)
+        # all extreme key positions globally
+        is_extreme_k = (x_label.squeeze(-1) == 1).unsqueeze(1)   # (B, 1, L_K)
 
-        #  existing dozer
+        # local window for surrounding context
+        local = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
         if local_window:
             w = local_window // 2
-            mask |= (d <= w)
+            local |= (d <= w)
+        local = local.unsqueeze(0)                                 # (1, L_Q, L_K)
 
-        if stride:
-            s = stride + 1
-            mask |= (d % s == 0)
+        extreme_mask = is_extreme_k | local                        # (B, L_Q, L_K)
 
-        #  extreme components
-        labels_bool = labels.bool()                        # (B, L)
-
-        # extreme_Q: (B, L, 1)  extreme_K: (B, 1, L)
-        extreme_Q = labels_bool[:, :, None]                # (B, L, 1)
-        extreme_K = labels_bool[:, None, :]                # (B, 1, L)
-
-        causal    = (i >= j)                               # (1, L, L)
-        lookahead = (i < j)                                # (1, L, L)
-
-        # 1. PRECURSOR LOOK-AHEAD (training only)
-        if precursor_window and is_training:
-            near_future_extreme = extreme_K & lookahead & ((j - i) <= precursor_window)
-            mask |= near_future_extreme                    # (B, L, L)
-
-        # 2. RECOVERY LOOK-BACK (always)
-        if recovery_window:
-            past_extreme_nearby = extreme_K & causal & ((i - j) <= recovery_window)
-            mask |= past_extreme_nearby
-
-        # 3. EXTREME-TO-EXTREME (always)
-        if extreme_to_extreme:
-            both_extreme_causal = extreme_Q & extreme_K & causal
-            mask |= both_extreme_causal
-
-    return mask  # (B, L, L) — True means can attend
-
-# base_mask = build_dozer_mask_batched(
-#     labels=x_label,
-#     local_window=self.local_window,
-#     stride=self.stride,
-#     precursor_window=2,
-#     recovery_window=4,
-#     extreme_to_extreme=True,
-#     is_training=True
-# )
+    return extreme_mask

@@ -24,14 +24,14 @@ def labels_to_segments(y, patch_size, in_channel=None):
     count_ones = reduce(y_seg, 'b seg_num seg_len c -> b seg_num c', 'sum')  # (B, S, 1)
     #
     # # # threshold rule: if more than 1 '1' in the patch
-    # y_major = (count_ones >= 1).to(y.dtype)
+    y_major = (count_ones >= 1).to(y.dtype)
 
     # # compute percentage of extreme points in each patch
-    patch_len = y_seg.shape[2]
-    extreme_ratio = count_ones / patch_len
-
-    # majority vote (more than 50%)
-    y_major = (extreme_ratio >= 0.1).to(y.dtype)
+    # patch_len = y_seg.shape[2]
+    # extreme_ratio = count_ones / patch_len
+    #
+    # # majority vote (more than 50%)
+    # y_major = (extreme_ratio >= 0.05).to(y.dtype)
 
     return y_major
 

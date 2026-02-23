@@ -3,7 +3,7 @@ seeds=(2023)
 
 # Mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer_ext_local)
+masks=(dozer_ext_null)
 
 lr=5e-5
 model=dozerformer_Linear

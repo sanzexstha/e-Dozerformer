@@ -95,7 +95,7 @@ def main():
 
     parser.add_argument('--mask', type=str, default='extreme_mask', help='type of sparse mask')
 
-    parser.add_argument('--exp_run', type=str, default='mask_comp_v2', help='identifier for experiments')
+    parser.add_argument('--exp_run', type=str, default='mask_comp_v2_exp1', help='identifier for experiments')
 
     args = parser.parse_args()
 
