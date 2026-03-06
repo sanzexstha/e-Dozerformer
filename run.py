@@ -27,7 +27,7 @@ def main():
     parser.add_argument('--data_path', type=str, default='ETTh1_labeled.csv', help='location of the data file')
     parser.add_argument('--seq_len', type=int, default=720, help='input sequence length for encoder, look back window')
     parser.add_argument('--label_len', type=int, default=96, help='start token length of Informer decoder')
-    parser.add_argument('--pred_len', type=int, default=96, help='prediction sequence length, horizon')
+    parser.add_argument('--pred_len', type=int, default=336, help='prediction sequence length, horizon')
     parser.add_argument('--features', type=str, default='M', choices=['S', 'M'],
                         help='features S is univariate, M is multivariate')
     parser.add_argument('--num_workers', type=int, default=0, help='data loader num workers')
@@ -77,7 +77,7 @@ def main():
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
 
-    parser.add_argument('--wandb', type=str2bool, default=False,
+    parser.add_argument('--wandb', type=str2bool, default=True,
                         help='flag for whether use wandb')
     parser.add_argument('--abla_type', type=str, default='False', help='ablation study type')
 
@@ -87,17 +87,38 @@ def main():
                         help='time features encoding, options:[timeF, fixed, learned]')
     parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
+    # Ross_noRain date/sampling split (optional, used when --data Ross_noRain)
+    parser.add_argument('--start_point', type=str, default=None, help='start time for training timeline')
+    parser.add_argument('--train_point', type=str, default=None, help='end time for training timeline')
+    parser.add_argument('--test_start', type=str, default=None, help='start time for test timeline')
+    parser.add_argument('--test_end', type=str, default=None, help='end time for test timeline')
+    parser.add_argument('--train_seed', type=int, default=1010, help='seed for train window sampling')
+    parser.add_argument('--val_seed', type=int, default=2007, help='seed for val window sampling')
+    parser.add_argument('--train_volume', type=int, default=30000, help='number of sampled train windows')
+    parser.add_argument('--val_size', type=int, default=120, help='number of sampled val windows')
+    parser.add_argument('--test_stride', type=int, default=16, help='test window stride')
 
     #fusion
     parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
     parser.add_argument('--u_size', type=int, default=2, help='u')
     parser.add_argument('--f_version', type=str, default="sk_v2", help='u')
 
-    parser.add_argument('--mask', type=str, default='extreme_mask', help='type of sparse mask')
+    parser.add_argument('--mask', type=str, default='dozer', help='type of sparse mask')
 
-    parser.add_argument('--exp_run', type=str, default='mask_comp_v2_exp1', help='identifier for experiments')
+    parser.add_argument('--exp_run', type=str, default='ross_S_alt_v2', help='identifier for experiments')
+    parser.add_argument('--patch_thres', type=int, default=1, help='type of sparse mask')
 
     args = parser.parse_args()
+
+    if args.data == 'Ross_noRain':
+        if args.start_point is None:
+            args.start_point = '1988-01-01 14:30:00'
+        if args.train_point is None:
+            args.train_point = '2021-08-31 23:30:00'
+        if args.test_start is None:
+            args.test_start = '2021-09-01 00:30:00'
+        if args.test_end is None:
+            args.test_end = '2022-05-31 23:30:00'
 
     # fix the seed for reproducibility, default 2023
     seed = args.seed
@@ -142,11 +163,13 @@ def main():
         'electricity_labeled': {'data': 'electricity/electricity_labeled.csv', 'data_dim': 321, 'split': [0.7, 0.1, 0.2]},
         'Weather': {'data': 'weather/weather.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
         'Weather_labeled': {'data': 'weather/weather_labeled.csv', 'data_dim': 21, 'split': [0.7, 0.1, 0.2]},
+        # 'Weather_labeled': {'data': 'weather/weather_labeled.csv', 'data_dim': 21, 'split': [12 * 30 * 24, 4 * 30 * 24, 4 * 30 * 24]},
 
         'ILI': {'data': 'national_illness.csv', 'data_dim': 7, 'split': [0.7, 0.1, 0.2]},
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
         'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
+        'Ross_noRain': {'data': 'watershed/Ross_S_fixed_labeled.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
     }
     if args.data in data_parser.keys():
         data_info = data_parser[args.data]

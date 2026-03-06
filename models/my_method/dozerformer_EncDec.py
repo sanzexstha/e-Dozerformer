@@ -12,7 +12,7 @@ from math import ceil
 import torch
 from einops import rearrange, reduce, repeat
 
-def labels_to_segments(y, patch_size, in_channel=None):
+def labels_to_segments(y, patch_size, patch_thres, in_channel=None):
     B, L, C = y.shape
     seg_num = L // patch_size  # number of segments
 
@@ -24,14 +24,17 @@ def labels_to_segments(y, patch_size, in_channel=None):
     count_ones = reduce(y_seg, 'b seg_num seg_len c -> b seg_num c', 'sum')  # (B, S, 1)
     #
     # # # threshold rule: if more than 1 '1' in the patch
-    y_major = (count_ones >= 1).to(y.dtype)
+    # for ETTh1 3,
+    # for exhange 4
+    # for ETTh2 5, w=24, s=1, k=90
+    y_major = (count_ones >= patch_thres).to(y.dtype)
 
     # # compute percentage of extreme points in each patch
     # patch_len = y_seg.shape[2]
     # extreme_ratio = count_ones / patch_len
     #
     # # majority vote (more than 50%)
-    # y_major = (extreme_ratio >= 0.05).to(y.dtype)
+    # y_major = (extreme_ratio >= patch_thres).to(y.dtype)
 
     return y_major
 
@@ -46,6 +49,7 @@ class dozerformer_Encoder(nn.Module):
         self.batch_size = configs.batch_size
         self.cycle_len = configs.cycle
         self.embed_dim = configs.embed_dim
+        self.patch_thres = configs.patch_thres
         self.d_model = configs.embed_dim*configs.patch_size
         self.d_ff = configs.d_ff*configs.patch_size
         # Embedding是非常重要的问题
@@ -124,7 +128,7 @@ class dozerformer_Encoder(nn.Module):
         # PreNorm
         patches = self.encoder_pre_norm(patches)
         #majority vote [batch, num , 1]
-        patches_label = labels_to_segments(x_label, patch_size=self.patch_size, in_channel=self.in_channel)  # -> (224,30,1)
+        patches_label = labels_to_segments(x_label, patch_size=self.patch_size, patch_thres=self.patch_thres, in_channel=self.in_channel)  # -> (224,30,1)
 
         encoder_output, attns = self.encoder(patches, patches_label)
 

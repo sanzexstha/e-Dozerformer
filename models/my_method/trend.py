@@ -208,7 +208,7 @@ class SKFusionST(nn.Module):
     default r = 8, L_min=4,
     for ETTh2, L_min=2, better, 336, 720 pred_len
     """
-    def __init__(self, C, r=8, L_min=4, drop=0.1):
+    def __init__(self, C, r=8, L_min=6, drop=0.1):
         super().__init__()
         d_hidden = max(C // r, L_min)
         # L_min = 10 for
@@ -249,78 +249,6 @@ class SKFusionST(nn.Module):
         out =  a * seasonal + b * trend
 
         return out
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-class SKFusionST_v2(nn.Module):
-    """
-    SK-style fusion with:
-    - global channel gate (like your original)
-    - local time-aware gate (depthwise temporal conv)
-    - optional energy-consistent residual path to avoid hurting reconstruction
-    """
-    def __init__(self, C, r=8, L_min=4, drop=0.1, k=9, alpha=0.5, tau=1.0, use_energy_residual=True):
-        super().__init__()
-        d_hidden = max(C // r, L_min)
-
-        # global gate (channel-wise)
-        self.fc_reduce = nn.Linear(C, d_hidden, bias=True)   # bias=True often helps here
-        self.act = nn.GELU()
-        self.drop = nn.Dropout(drop) if drop and drop > 0 else nn.Identity()
-        self.fc_a = nn.Linear(d_hidden, C, bias=True)
-        self.fc_b = nn.Linear(d_hidden, C, bias=True)
-
-        # local gate (time-wise, channel-wise): depthwise conv over time
-        # input: (B, C, L) -> output: (B, C, L)
-        self.dwconv = nn.Conv1d(C, C, kernel_size=k, padding=k//2, groups=C, bias=True)
-        self.pw = nn.Conv1d(C, 2*C, kernel_size=1, bias=True)  # -> logits for a,b per time
-
-        # init so it starts close to equal mixing
-        nn.init.zeros_(self.fc_a.weight); nn.init.zeros_(self.fc_b.weight)
-        nn.init.zeros_(self.fc_a.bias);   nn.init.zeros_(self.fc_b.bias)
-        nn.init.zeros_(self.pw.weight);   nn.init.zeros_(self.pw.bias)
-
-        self.alpha = alpha   # blend global vs local gate
-        self.tau = tau       # softmax temperature
-        self.use_energy_residual = use_energy_residual
-
-    def forward(self, seasonal, trend):
-        # seasonal, trend: (B, L, C)
-        B, L, C = seasonal.shape
-        U = seasonal + trend                     # reconstruction backbone
-
-        # -------- global gate (B, 2, C) --------
-        s = U.mean(dim=1)                        # (B, C)
-        z = self.drop(self.act(self.fc_reduce(s)))   # (B, d_hidden)
-        a_g = self.fc_a(z)                       # (B, C)
-        b_g = self.fc_b(z)                       # (B, C)
-        w_g = torch.softmax(torch.stack([a_g, b_g], dim=1) / self.tau, dim=1)  # (B,2,C)
-        w_g = w_g.unsqueeze(2)                   # (B,2,1,C)
-
-        # -------- local gate (B, 2, L, C) --------
-        x = U.transpose(1, 2)                    # (B, C, L)
-        x = self.act(self.dwconv(x))
-        logits = self.pw(x)                      # (B, 2C, L)
-        logits = logits.view(B, 2, C, L).permute(0, 1, 3, 2)   # (B,2,L,C)
-        w_l = torch.softmax(logits / self.tau, dim=1)          # (B,2,L,C)
-
-        # -------- blend gates --------
-        # broadcast global to (B,2,L,C)
-        w = self.alpha * w_l + (1 - self.alpha) * w_g.expand(-1, -1, L, -1)
-
-        a = w[:, 0]   # (B,L,C)
-        b = w[:, 1]   # (B,L,C)
-
-        fused = a * seasonal + b * trend         # gated fusion
-
-        # energy-consistent residual: keep reconstruction backbone, learn only a correction
-        if self.use_energy_residual:
-            # correction is (fused - U); start near 0 due to init
-            return U + (fused - U)
-        else:
-            return fused
-
 
 class FusionTransfer(nn.Module):
     def __init__(self, C):
@@ -345,227 +273,66 @@ class FusionTransfer(nn.Module):
         return Final
 
 
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-class SKFusion_EIA_ST(nn.Module):
+class SKFusion_v2(nn.Module):
     """
-    SK-style gating (pool -> bottleneck -> select) adapted for seasonal/trend,
-    enforcing a+b=1 via beta and using EIA scaling to preserve energy.
+    Selective Kernel Fusion for seasonal and trend time-series components.
 
-    Inputs: seasonal, trend: (B, L, C)
-    Output: fused: (B, L, C)
+    Mirrors the three-stage SK pipeline from the paper:
+        Split  →  two branches are the seasonal & trend inputs (pre-computed)
+        Fuse   →  element-wise sum → global avg pool → FC bottleneck → z
+        Select →  softmax attention over branches, channel-wise weighted sum
+
+    Args:
+        ts_d (int):  Number of time-series variates / channels (C in the paper).
+        r    (int):  Reduction ratio that controls the bottleneck dimension d.
+                     d = max(ts_d // r, min_d).  Default: 2.
+        min_d (int): Minimum bottleneck dimension L in the paper. Default: 32.
+        M    (int):  Number of branches. Currently 2 (seasonal + trend).
     """
-    def __init__(self, C, r=8, U=4, k_pool=96, act="gelu", drop=0.0,
-                 use_ln=True, eia_scale=True):
+    def __init__(self, ts_d, r=8, min_d=7):
         super().__init__()
-        self.k_pool = k_pool
-        self.eia_scale = eia_scale
 
-        u = max(C // r, U)
+        self.M = 2                          # seasonal + trend
+        self.ts_d = ts_d
 
-        self.use_ln = use_ln
-        self.ln_s = nn.LayerNorm(C) if use_ln else nn.Identity()
-        self.ln_t = nn.LayerNorm(C) if use_ln else nn.Identity()
+        # Bottleneck dimension  d = max(C/r, L)
+        d = max(ts_d // r, min_d)
+        self.d = d
 
-        self.fc_reduce = nn.Linear(C, u, bias=True)
-        self.act = nn.GELU() if act == "gelu" else nn.ReLU(inplace=True) if act == "relu" else nn.Identity()
-        self.drop = nn.Dropout(drop) if drop and drop > 0 else nn.Identity()
+        # Fuse: shared FC layer  W ∈ R^{d × C}   (Eq. 3 in paper)
+        # BN + ReLU mimic  δ(B(Ws))
+        self.fc   = nn.Linear(ts_d, d, bias=False)
+        self.bn   = nn.BatchNorm1d(d)
 
-        # single head -> beta
-        self.fc_beta = nn.Linear(u, C, bias=True)
-
-        # safe init: start near beta=0.5 (so output ≈ seasonal+trend with EIA)
-        nn.init.zeros_(self.fc_beta.weight)
-        nn.init.zeros_(self.fc_beta.bias)
+        # Select: one attention matrix per branch  A, B ∈ R^{C × d}  (Eq. 5)
+        self.attn = nn.Linear(d, self.M * ts_d, bias=False)
+        nn.init.zeros_(self.attn.weight)
 
     def forward(self, seasonal, trend):
-        # (B, L, C)
-        assert seasonal.shape == trend.shape
-        B, L, C = seasonal.shape
+        B, T, C = seasonal.shape
+        # Element-wise sum across the M branches  (Eq. 1)
+        U = seasonal + trend                            # (B, T, C)
 
-        # Normalize only for gating stability (optional but helps Weather)
-        sN = self.ln_s(seasonal)
-        tN = self.ln_t(trend)
+        # Global average pooling over the time dimension → s ∈ R^{B × C}
+        # Eq. 2: s_c = (1 / T) Σ_t U_c(t)
+        s = U.mean(dim=1)                               # (B, C)
 
-        # SK "Fuse": combine branches to get descriptor
-        U = sN + tN  # (B, L, C)
+        # Compact feature  z = δ(BN(W s))  (Eq. 3)
+        z = F.relu(self.bn(self.fc(s)))                 # (B, d)
 
-        # horizon-aware pooling (Weather-safe)
-        k = min(self.k_pool, L)
-        S = U[:, -k:, :].mean(dim=1)  # (B, C)
+        # SELECT
+        # Project z → M × C attention logits  (Eq. 5)
+        logits = self.attn(z)                           # (B, M*C)
+        logits = logits.view(B, self.M, C)              # (B, M, C)
 
-        # bottleneck
-        Z = self.fc_reduce(S)
-        Z = self.act(Z)
-        Z = self.drop(Z)
+        # Softmax over the M branches (channel-wise)
+        weights = F.softmax(logits, dim=1)              # (B, M, C)
 
-        # SK "Select": beta in (0,1), and complementary weights
-        beta = torch.sigmoid(self.fc_beta(Z)).unsqueeze(1)  # (B, 1, C)
-        a = beta
-        b = 1.0 - beta
+        a = weights[:, 0, :]                            # (B, C)  — seasonal weight
+        b = weights[:, 1, :]                            # (B, C)  — trend weight
 
-        # decomposition-friendly fusion
-        out = a * seasonal + b * trend
+        # Weighted sum over branches  V_c = a_c · seasonal_c + b_c · trend_c
+        # Broadcast: (B, 1, C) * (B, T, C)
+        V = a.unsqueeze(1) * seasonal + b.unsqueeze(1) * trend  # (B, T, C)
 
-        # EIA energy invariance (so beta=0.5 -> seasonal+trend)
-        if self.eia_scale:
-            out = 2.0 * out
-
-        return out
-
-
-import torch
-import torch.nn as nn
-
-class HybridSKFusion(nn.Module):
-    """
-    Hybrid SK fusion for seasonal/trend (time-series):
-      - Global SK gate (per-channel, stable): g_g  (B,1,C)
-      - Local  SK gate (per-time, adaptive):  g_l  (B,L,C)
-      - Combine gates in signed EIA form:
-          out = (s+t) + g*(s-t),  g in [-1,1]
-
-    Inputs:
-      seasonal, trend: (B,L,C)
-    Output:
-      out:            (B,L,C)
-    """
-    def __init__(
-        self,
-        C: int,
-        r_global: int = 8,
-        Lmin_global: int = 4,
-        hidden_mul_local: int = 2,
-        drop: float = 0.0,
-        lam_local: float = 1.0,     # strength of local correction
-        gate_clip: float = 1.0      # keep 1.0; <1 makes gate more conservative
-    ):
-        super().__init__()
-        self.lam_local = lam_local
-        self.gate_clip = gate_clip
-
-        # -------- Global SK gate (Fuse: U -> GAP -> bottleneck -> g_g) --------
-        d_g = max(C // r_global, Lmin_global)
-        self.g_fc1 = nn.Linear(C, d_g, bias=True)
-        self.g_act = nn.GELU()
-        self.g_drop = nn.Dropout(drop) if drop and drop > 0 else nn.Identity()
-        self.g_fc2 = nn.Linear(d_g, C, bias=True)   # outputs g_g logits -> tanh
-
-        # Start near SUM: g_g ~ 0
-        nn.init.zeros_(self.g_fc2.weight)
-        nn.init.zeros_(self.g_fc2.bias)
-
-        # -------- Local gate (Fuse: concat(s,t) per time -> MLP -> g_l) --------
-        H = hidden_mul_local * C
-        self.l_fc1 = nn.Linear(2 * C, H, bias=True)
-        self.l_act = nn.GELU()
-        self.l_drop = nn.Dropout(drop) if drop and drop > 0 else nn.Identity()
-        self.l_fc2 = nn.Linear(H, C, bias=True)
-
-        # Start near SUM: g_l ~ 0
-        nn.init.zeros_(self.l_fc2.weight)
-        nn.init.zeros_(self.l_fc2.bias)
-
-    def forward(self, seasonal: torch.Tensor, trend: torch.Tensor) -> torch.Tensor:
-        # seasonal, trend: (B,L,C)
-        U = seasonal + trend          # (B,L,C)
-        D = seasonal - trend          # (B,L,C)
-
-        # ---- global gate ----
-        s = U.mean(dim=1)                                # (B,C)  GAP over time
-        zg = self.g_drop(self.g_act(self.g_fc1(s)))       # (B,d_g)
-        g_g = torch.tanh(self.g_fc2(zg)).unsqueeze(1)     # (B,1,C) in [-1,1]
-
-        # ---- local gate ----
-        yC = torch.cat([seasonal, trend], dim=-1)         # (B,L,2C)
-        zl = self.l_drop(self.l_act(self.l_fc1(yC)))      # (B,L,H)
-        g_l = torch.tanh(self.l_fc2(zl))                  # (B,L,C) in [-1,1]
-
-        # ---- combine gates (bounded) ----
-        g = torch.tanh(g_g + self.lam_local * g_l)        # (B,L,C)
-        if self.gate_clip != 1.0:
-            g = self.gate_clip * g                        # conservative gating if <1
-
-        # ---- energy-invariant fusion (EIA form) ----
-        out = U + g * D                                   # (B,L,C)
-        return out
-
-
-import torch
-import torch.nn as nn
-
-class EIADiffGate(nn.Module):
-    """
-    Stable EIA-style fusion:
-      out = (seasonal + trend) + g * (seasonal - trend)
-    where g in [-1, 1] (learned, time-dependent).
-    seasonal, trend: (B,L,C)
-    """
-    def __init__(self, C, hidden_mul=2, drop=0.0):
-        super().__init__()
-        H = hidden_mul * C
-
-        self.net = nn.Sequential(
-            nn.Linear(2*C, H),
-            nn.GELU(),
-            nn.Dropout(drop) if drop and drop > 0 else nn.Identity(),
-            nn.Linear(H, C),
-        )
-
-        # Start at SUM: g ~ 0
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
-
-    def forward(self, seasonal, trend):
-        U = seasonal + trend                # (B,L,C)
-        D = seasonal - trend                # (B,L,C)
-
-        yC = torch.cat([seasonal, trend], dim=-1)  # (B,L,2C)
-        g = torch.tanh(self.net(yC))        # (B,L,C) in [-1,1]
-
-        out = U + g * D
-        return out
-
-
-class SKFusionResidual(nn.Module):
-    """
-    out = (seasonal + trend) + alpha * ( a*seasonal + b*trend - (seasonal + trend) )
-    Starts as exact SUM and learns small deviations.
-    """
-    def __init__(self, C, r=8, L_min=4, drop=0.1, temp=1.0):
-        super().__init__()
-        d = max(C // r, L_min)
-
-        self.fc_reduce = nn.Linear(C, d, bias=True)
-        self.norm = nn.LayerNorm(d)          # BN often unstable for gating
-        self.act = nn.GELU()
-        self.drop = nn.Dropout(drop) if drop and drop > 0 else nn.Identity()
-
-        self.fc_a = nn.Linear(d, C, bias=True)
-        self.fc_b = nn.Linear(d, C, bias=True)
-
-        # Start near SUM: logits ~0 => a=b=0.5
-        nn.init.zeros_(self.fc_a.weight); nn.init.zeros_(self.fc_a.bias)
-        nn.init.zeros_(self.fc_b.weight); nn.init.zeros_(self.fc_b.bias)
-
-        self.alpha = nn.Parameter(torch.tensor(0.0))  # start as exact SUM
-        self.temp = temp
-
-    def forward(self, seasonal, trend):
-        U = seasonal + trend              # safe baseline
-        s = U.mean(dim=1)                 # (B,C)
-
-        z = self.drop(self.act(self.norm(self.fc_reduce(s))))  # (B,d)
-
-        logits = torch.stack([self.fc_a(z), self.fc_b(z)], dim=1)  # (B,2,C)
-        w = torch.softmax(logits / self.temp, dim=1)
-        a = w[:, 0].unsqueeze(1)
-        b = w[:, 1].unsqueeze(1)
-
-        fused = a * seasonal + b * trend
-        out = U + self.alpha * (fused - U)
-        return out
-
+        return V

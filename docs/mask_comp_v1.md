@@ -6,8 +6,8 @@
 ## Masks Compared
 - `extreme_mask`: Pure label-based attention. Query attends only to tokens with same 0/1 label
 - `dozer`: Standard
-- `dozer_ext_only`: Dozer mask but also attending to extreme tokens 
-- `dozer_ext_0`: Conditional mask (only extreme queries use extreme mask), for normal queries, dozer AND extreme
+- `dozer_ext_only`: Normal query attend to Dozer keys, extreme query attends to dozer keys and extreme keys
+- `dozer_ext_0`: Normal query attends to keys from Dozer and Extreme after AND operator, key has to be True in both attention matrix to be select.
 - `dozer_ext_null`: Dozer mask restricting attention to region of extreme mask allowed to extreme token
 - `dozer_AND_ext`: When both dozer and extreme mask agrees (1)
 

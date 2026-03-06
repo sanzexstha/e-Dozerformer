@@ -7,7 +7,7 @@ from models.my_method.dozerformer_EncDec import dozerformer_Encoder, dozerformer
 
 from models.REVIN import RevIN
 from models.my_method.build_model_util import series_decomp_multi, series_decomp_multi_learnable
-from models.my_method.trend import AdaptiveSTFusion, TinyStableSTFusion, AdaptiveSTFusionV2, SKFusionST ,EIADiffGate, FusionTransfer, SKFusionST_v2
+from models.my_method.trend import SKFusionST, SKFusion_v2
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -52,7 +52,9 @@ class Model(nn.Module):
             )
             self._init_eia_weights()
         elif self.fusion == 'ADT':
-            self.st_fusion = SKFusionST_v2(C=self.in_channel)
+            # self.st_fusion = SKFusion_v2(ts_d=self.in_channel)
+            self.st_fusion = SKFusionST(C=self.in_channel)
+
 
     def _init_eia_weights(self):
         for layer in self.attention_mlp:

@@ -188,53 +188,66 @@ def build_dozer_mask(L_Q, L_K, local_window=None, stride=None, device=None):
 
         return mask
 
-def build_dozer_ext_mask_v1(L_Q, L_K, x_label, local_window=None, stride=None, device=None):
+def build_dozer_mask_v1(L_Q, L_K, x_label=None, local_window=None, stride=None, device=None, cap=None):
+    """
+    Args:
+        L_Q, L_K     : query/key sequence lengths
+        x_label      : (batch, L_K, 1) float/bool — marks extreme positions
+        local_window : local attention window width
+        stride       : stride step for seasonal (normal queries only)
+        device       : torch device
+
+    Returns:
+        If x_label is None → (L_Q, L_K)       bool mask
+        If x_label given  → (batch, L_Q, L_K) bool mask
+            • normal query rows  : local window  +  stride
+            • extreme query rows : local window  +  all extreme-key columns
+    """
     device = device or "cpu"
-    B = x_label.shape[0]
 
     with torch.no_grad():
-        i = torch.arange(L_Q, device=device)[:, None]
-        j = torch.arange(L_K, device=device)[None, :]
-        d = (i - j).abs()
+        i = torch.arange(L_Q, device=device)[:, None]   # (L_Q, 1)
+        j = torch.arange(L_K, device=device)[None, :]   # (1,  L_K)
+        d = (i - j).abs()                               # (L_Q, L_K)
 
-        # 1. Normal-query mask: full dozer (local window + stride/seasonal)
-        normal_mask = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
+        # shared local component
+        local_mask = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
         if local_window:
             w = local_window // 2
-            normal_mask |= (d <= w)
+            local_mask |= (d <= w)
+
+        # normal-query mask  (local + stride)─
+        normal_mask = local_mask.clone()
         if stride:
-            s = stride + 1
-            normal_mask |= (d % s == 0)
-        normal_mask = normal_mask.unsqueeze(0).expand(B, -1, -1)   # (B, L_Q, L_K)
+            normal_mask |= (d % (stride + 1) == 0)
 
-        # 2. Extreme-query mask: self + extreme keys within local window + seasonal
-        is_extreme_k = (x_label.squeeze(-1) == 1).unsqueeze(1)     # (B, 1,   L_K)
+        # no x_label → return shared static mask
+        if x_label is None:
+            return normal_mask                           # (L_Q, L_K)
 
-        # always attend to self
-        self_attn = (d == 0).unsqueeze(0)                           # (1, L_Q, L_K)
+        # batch-aware mask
+        B = x_label.shape[0]
+        x_label = x_label.to(device)                    # (B, L_K, 1)
 
-        # extreme keys within local window
-        if local_window:
-            w = local_window // 2
-            within_window = (d <= w).unsqueeze(0)                   # (1, L_Q, L_K)
-            extreme_local = within_window & is_extreme_k            # (B, L_Q, L_K)
-        else:
-            extreme_local = torch.zeros((B, L_Q, L_K), device=device, dtype=torch.bool)
+        # which KEY positions are extreme?  (B, 1, L_K)
+        extreme_key_cols = (x_label.squeeze(-1) > 0).unsqueeze(1)
 
-        # seasonal/stride component (same as normal)
-        seasonal = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
-        if stride:
-            s = stride + 1
-            seasonal |= (d % s == 0)
-        seasonal = seasonal.unsqueeze(0)                            # (1, L_Q, L_K)
+        # which QUERY positions are extreme?  (B, L_Q, 1)
+        # assumes L_Q == L_K (same sequence); adjust indexing if they differ
+        extreme_query_rows = (x_label.squeeze(-1) > 0).unsqueeze(2)
 
-        extreme_mask = self_attn | extreme_local | seasonal         # (B, L_Q, L_K)
+        # expand static masks to batch dim
+        normal_mask_b = normal_mask.unsqueeze(0).expand(B, -1, -1)   # (B, L_Q, L_K)
+        local_mask_b  = local_mask .unsqueeze(0).expand(B, -1, -1)   # (B, L_Q, L_K)
 
-        # 3. Select per query based on label
-        is_extreme_q = (x_label == 1)                              # (B, L_Q, 1)
-        final_mask = torch.where(is_extreme_q, extreme_mask, normal_mask)
 
-    return final_mask   # (B, L_Q, L_K)
+        # extreme-query mask: local window  +  attend to every extreme key
+        extreme_mask_b = local_mask_b | extreme_key_cols              # (B, L_Q, L_K)
+
+        # stitch: extreme rows get extreme_mask, normal rows get normal_mask
+        mask = torch.where(extreme_query_rows, extreme_mask_b, normal_mask_b)
+
+        return mask                                      # (B, L_Q, L_K)
 
 def generate_full_mask(B, L_Q, L_K, device=None):
     with torch.no_grad():
@@ -297,6 +310,23 @@ class SparseMask:
 
             if mask == 'dozer':
                 self._mask = dozer_mask.unsqueeze(0).repeat(self.B, 1, 1)
+            elif mask == "dozer_v1":
+                self._mask = build_dozer_mask_v1(
+                self.L_Q, self.L_K,
+                x_label=self.x_label,
+                local_window=self.local_window,
+                stride=self.stride,
+                device=self.device
+            )
+            elif mask == "dozer_v2":
+                self._mask = build_dozer_mask_v1(
+                    self.L_Q, self.L_K,
+                    x_label=self.x_label,
+                    local_window=self.local_window,
+                    stride=self.stride,
+                    device=self.device,
+                    cap="local"
+                    )
             elif mask == 'dozer_ext_only':
                 self._mask = DozerExtremeOnlyMask(self.x_label, dozer_mask).mask
             elif mask == 'dozer_ext_0':
@@ -307,11 +337,10 @@ class SparseMask:
                 self._mask = ExtremeDozerSparseMask(ExtremeMask(self.x_label).mask, dozer_mask, self.x_label).mask
             elif mask == 'dozer_AND_ext':
                 self._mask = ExtremeAndDozerMask(self.x_label, dozer_mask).mask
-            elif mask == 'dozer_ext_v1':
-                self._mask = build_dozer_ext_mask_v1(self.L_Q, self.L_K, self.x_label,
-                local_window=self.local_window,
-                stride=self.stride,
-                device=self.device)
+            elif mask == 'dozer_ext_0_v1':
+                self._mask = build_dozer_ext_0_v1(self.L_Q, self.L_K, x_label=self.x_label,
+                                                local_window=self.local_window,
+                                                stride=self.stride, device=self.device)
             elif mask == 'full_mask':
                 self._mask = generate_full_mask(self.B, self.L_Q, self.L_K, self.device)
             else:
@@ -321,7 +350,7 @@ class SparseMask:
 
     def visualize_mask(self, mask='dozer'):
         MASK_TYPES = ['extreme_mask', 'dozer', 'dozer_ext_only', 'full_mask', 'dozer_ext_0',
-                      'dozer_ext_null', 'dozer_AND_ext', 'dozer_ext_v1']
+                      'dozer_ext_null', 'dozer_AND_ext', 'dozer_ext_0_v1', 'dozer_v1', 'dozer_v2']
 
         if mask == 'all':
             results = {}
@@ -340,7 +369,7 @@ class SparseMask:
         # plt.figure(figsize=(10, 8))
         # plt.imshow(mask_np, aspect='auto', cmap='Blues', interpolation='none')
         # plt.colorbar(label='Mask Value')
-        # plt.title(title)
+        # plt.title("TEst")
         # plt.xlabel('Key Position (L_K)')
         # plt.ylabel('Query Position (L_Q)')
         # plt.tight_layout()
@@ -413,3 +442,65 @@ def build_extreme_mask(L_Q, L_K, x_label, local_window=None, device=None):
         extreme_mask = is_extreme_k | local                        # (B, L_Q, L_K)
 
     return extreme_mask
+
+def build_dozer_ext_0_v1(L_Q, L_K, x_label=None, local_window=None, stride=None, device=None):
+    """
+    Args:
+        L_Q, L_K     : query/key sequence lengths
+        x_label      : (batch, L_K, 1) float/bool — marks extreme positions
+        local_window : local attention window width
+        stride       : stride step for seasonal (normal queries only)
+        device       : torch device
+
+    Returns:
+        If x_label is None → (L_Q, L_K)       bool mask
+        If x_label given  → (batch, L_Q, L_K) bool mask
+            • normal query rows  : dozer (local + stride) with extreme key columns blocked
+            • extreme query rows : local window OR all extreme-extreme key columns (no stride)
+    """
+    device = device or "cpu"
+
+    with torch.no_grad():
+        i = torch.arange(L_Q, device=device)[:, None]
+        j = torch.arange(L_K, device=device)[None, :]
+        d = (i - j).abs()
+
+        # position-based masks
+        local_mask = torch.zeros((L_Q, L_K), device=device, dtype=torch.bool)
+        if local_window:
+            w = local_window // 2
+            local_mask |= (d <= w)
+
+        normal_mask = local_mask.clone()
+        if stride:
+            normal_mask |= (d % (stride + 1) == 0)
+
+        # no x_label → return static dozer mask─
+        if x_label is None:
+            return normal_mask                               # (L_Q, L_K)
+
+        # label-based masks─
+        B = x_label.shape[0]
+        x_label = x_label.to(device)                        # (B, L_K, 1)
+
+        extreme_k = (x_label.squeeze(-1) > 0)               # (B, L_K)
+        extreme_q = extreme_k                                # (B, L_Q)  assumes L_Q == L_K
+
+        # extreme query i attends to extreme key j
+        extreme_extreme = extreme_q.unsqueeze(2) & extreme_k.unsqueeze(1)  # (B, L_Q, L_K)
+
+        # expand position masks to batch
+        normal_mask_b = normal_mask.unsqueeze(0).expand(B, -1, -1)         # (B, L_Q, L_K)
+        local_mask_b  = local_mask .unsqueeze(0).expand(B, -1, -1)         # (B, L_Q, L_K)
+
+        # normal queries: dozer mask with extreme key columns blocked
+        normal_mask_full  = normal_mask_b & ~extreme_k.unsqueeze(1)        # (B, L_Q, L_K)
+
+        # extreme queries: local window OR all extreme keys globally (no stride)
+        extreme_mask_full = local_mask_b  |  extreme_extreme               # (B, L_Q, L_K)
+
+        # stitch on query type
+        extreme_query_rows = extreme_q.unsqueeze(2)                        # (B, L_Q, 1)
+        mask = torch.where(extreme_query_rows, extreme_mask_full, normal_mask_full)
+
+        return mask                                                         # (B, L_Q, L_K)

@@ -38,20 +38,25 @@ class DozerAttention(nn.Module):
             base_mask = sparse_mask.generate_mask(mask=self.mask)
 
             dozer_np = sparse_mask.visualize_mask(mask='dozer')
-            all_masks = sparse_mask.visualize_mask(mask='all')
-            extreme_np = all_masks['extreme_mask']
-            dozer_ext_only = all_masks['dozer_ext_only']
-            dozer_ext_0 = all_masks['dozer_ext_0']
-            dozer_ext_null = all_masks['dozer_ext_null']
-            dozer_AND_ext = all_masks['dozer_AND_ext']
-            dozer_ext_0_v2 = all_masks['dozer_ext_0_v2']
-            dozer_ext_0_v3 = all_masks['dozer_ext_0_v3']
-            dozer_ext_0_v4 = all_masks['dozer_ext_0_v4']
-            full_mask = all_masks['full_mask']
+            masks = sparse_mask.visualize_mask(mask='all')
+            extreme_np = masks['extreme_mask']
+            # Normal query attend to Dozer keys, extreme query attend to dozer keys and extreme keys
+            # This is the implementation of Sanjeev on Feb 19.
+            dozer_ext_only = masks['dozer_ext_only']
 
+            # Normal query attend keys from Dozer and Extreme after AND operator, key has to be True in both attention matrix to be select.
+            # This is the implementation Yifan asked to implement on Feb 19.
+            dozer_ext_0 = masks['dozer_ext_0']
 
+            # Extreme query doesn't attend any keys. All False in rows (queries) with extreme label (1)
+            dozer_ext_null = masks['dozer_ext_null']
 
-
+            # This implementation apply AND operation to Dozer and Extreme Mask directly. Possibly for extreme query, there will be no key selected.
+            # But, in usual, this has little differences with dozer_ext_only and dozer_ext_0
+            dozer_AND_ext = masks['dozer_AND_ext']
+            full_mask = masks['full_mask']
+            dozer_ext_0_v1 = masks['dozer_ext_0_v1']
+            dozer_v1 = masks['dozer_v1']
             adapt_dozer_mask = repeat(base_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
             attn_mask = adapt_dozer_mask.unsqueeze(1).expand(-1, H, -1, -1)
 

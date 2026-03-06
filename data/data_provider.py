@@ -10,6 +10,8 @@ data_dict = {
     'ETTm2_labeled': Dataset_ETT_minute,
     'Weather_labeled': Dataset_MTS,
     'Exchange_labeled': Dataset_MTS,
+    'Ross_S_fixed': Dataset_MTS,
+    'Ross_noRain': Dataset_MTS,
     # 'Solar': Dataset_Solar,
     # 'PEMS': Dataset_PEMS,
     # 'custom': Dataset_Custom,
@@ -42,7 +44,7 @@ def data_provider(args, flag):
     #         size=[args.seq_len, args.label_len, args.pred_len],
     #         data_split=args.data_split
     #     )
-    data_set = Data(
+    data_kwargs = dict(
         root_path=args.root_path,
         data_path=args.data_path,
         flag=flag,
@@ -53,6 +55,20 @@ def data_provider(args, flag):
         freq=freq,
         cycle=args.cycle,
     )
+    if Data is Dataset_MTS:
+        data_kwargs.update(
+            dataset_name=args.data,
+            start_point=getattr(args, 'start_point', None),
+            train_point=getattr(args, 'train_point', None),
+            test_start=getattr(args, 'test_start', None),
+            test_end=getattr(args, 'test_end', None),
+            train_seed=getattr(args, 'train_seed', None),
+            train_volume=getattr(args, 'train_volume', None),
+            val_seed=getattr(args, 'val_seed', None),
+            val_size=getattr(args, 'val_size', None),
+            test_stride=getattr(args, 'test_stride', 16),
+        )
+    data_set = Data(**data_kwargs)
     print(flag, len(data_set))
 
     def seed_worker(worker_id):
