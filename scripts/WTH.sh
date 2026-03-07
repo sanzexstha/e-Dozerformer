@@ -1,37 +1,55 @@
-# 10 mins
+# ~10 mins
 # Random Seeds
-seeds=(1 2022 2023 2024 2025 2026)
-lr=1e-3
+seeds=(2023)
+
+# Mask types
+#masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
+masks=(dozer_v1)
+#masks=(dozer)
+
+patches_thes=(2 3 4 5)
+#patches_thes=(2)
+
+lr=1e-4
 model=dozerformer_Linear
-patch_size=48
+patch_size=24
+
 # Dozer attention parameters
 local_window=3
 stride=3
 vary_len=1
-# shellcheck disable=SC2068
-for seed in ${seeds[@]}
+
+for patch_thres in "${patches_thes[@]}"
 do
-    #----------------------------------predict length 96---------------------------------------
-    python run.py --seed $seed --data Weather --model $model --moving_avg '13, 17' \
-    --seq_len 720 --label_len 96 --pred_len 96 --embed_dim 8 \
-    --learning_rate 1e-4 --patch_size $patch_size \
-    --local_window $local_window --stride $stride --vary_len $vary_len
+  for mask in "${masks[@]}"
+  do
+    for seed in "${seeds[@]}"
+    do
+      echo "===================================================================="
+      echo "Dataset: Weather | Seed: $seed | Mask: $mask | thres: $patch_thres"
+      echo "===================================================================="
 
-    #----------------------------------predict length 192---------------------------------------
-    python run.py --seed $seed --data Weather  --model $model --moving_avg '13, 17' \
-    --seq_len 720 --label_len 96 --pred_len 192 --embed_dim 8 \
-    --learning_rate 1e-4 --patch_size $patch_size \
-    --local_window $local_window --stride $stride --vary_len $vary_len
+      for pred_len in 96 192 336 720
+      do
+        echo "Prediction Length: $pred_len"
 
-    #----------------------------------predict length 336---------------------------------------
-    python run.py --seed $seed --data Weather --model $model --moving_avg '13, 17' \
-    --seq_len 720 --label_len 96 --pred_len 336 --embed_dim 8 \
-    --learning_rate 1e-4 --patch_size $patch_size \
-    --local_window $local_window --stride $stride --vary_len $vary_len
-
-    #----------------------------------predict length 720---------------------------------------
-    python run.py --seed $seed --data Weather --model $model --moving_avg '13, 17' \
-    --seq_len 720 --label_len 96 --pred_len 720 --embed_dim 8 \
-    --learning_rate 1e-4 --patch_size $patch_size \
-    --local_window $local_window --stride $stride --vary_len $vary_len
+        python run.py \
+        --seed "$seed" \
+        --data Weather_labeled \
+        --model "$model" \
+        --moving_avg '13, 17' \
+        --seq_len 720 \
+        --label_len 96 \
+        --pred_len "$pred_len" \
+        --embed_dim 8 \
+        --learning_rate "$lr" \
+        --patch_size "$patch_size" \
+        --local_window "$local_window" \
+        --stride "$stride" \
+        --vary_len "$vary_len" \
+        --mask "$mask" \
+        --patch_thres "$patch_thres"
+      done
+    done
+  done
 done

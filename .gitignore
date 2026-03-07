@@ -23,3 +23,6 @@ __pycache__/
 docs/
 
 
+run_all.sh
+
+result.txt

@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+from datetime import datetime, timedelta
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -13,62 +14,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def _preprocess_watershed_dataframe(file_path):
-    """Load watershed TSV-like files and convert to common [date, OT, label] schema."""
-    df_raw = pd.read_csv(file_path, sep='\t')
-
-    # Some files may be read as a single tab-delimited column; split them explicitly.
-    if df_raw.shape[1] == 1:
-        expanded = df_raw.iloc[:, 0].astype(str).str.split('\t', expand=True)
-        if expanded.shape[1] >= 3:
-            expanded = expanded.iloc[:, -3:]
-            expanded.columns = ['index', 'datetime', 'value']
-            df_raw = expanded
-
-    # Remove index-like helper columns exported by pandas.
-    df_raw = df_raw.drop(columns=[c for c in df_raw.columns if str(c).lower().startswith('unnamed')], errors='ignore')
-
-    if 'datetime' in df_raw.columns:
-        date_col = 'datetime'
-    elif 'date' in df_raw.columns:
-        date_col = 'date'
-    else:
-        raise ValueError(f'Cannot find datetime column in watershed file: {file_path}')
-
-    value_col = None
-    for candidate in ['value', 'rainfall', 'streamflow', 'flow', 'ot']:
-        if candidate in [c.lower() for c in df_raw.columns]:
-            for col in df_raw.columns:
-                if col.lower() == candidate:
-                    value_col = col
-                    break
-            break
-
-    if value_col is None:
-        numeric_candidates = [c for c in df_raw.columns if c != date_col]
-        if not numeric_candidates:
-            raise ValueError(f'Cannot find value column in watershed file: {file_path}')
-        value_col = numeric_candidates[-1]
-
-    df = pd.DataFrame()
-    df['date'] = pd.to_datetime(df_raw[date_col], errors='coerce')
-    df['OT'] = pd.to_numeric(df_raw[value_col], errors='coerce')
-    df = df.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
-
-    # DAN_loader applies log-based normalization; apply log1p before scaling here.
-    df['OT'] = np.log1p(df['OT'].clip(lower=0))
-
-    ot_series = pd.Series(df['OT'].values, index=df['date'])
-    ot_series = ot_series.interpolate(method='time').ffill().bfill().fillna(0.0)
-    df['OT'] = ot_series.values.astype(np.float32)
-    return df
-
-
-class Dataset_MTS_ross_v1(Dataset):
+class Dataset_MTS(Dataset):
     def __init__(self, root_path, data_path='ETTh1.csv', flag='train', size=None, features='M',
-                 data_split=[0.7, 0.1, 0.2], scale=True, scale_statistic=None, target='OT', timeenc=0, freq='h',
-                 cycle=None, dataset_name=None, start_point=None, train_point=None, test_start=None, test_end=None,
-                 train_seed=None, train_volume=None, val_seed=None, val_size=None, test_stride=16):
+                 data_split=[0.7, 0.1, 0.2], scale=True, scale_statistic=None, target='OT', timeenc=0, freq='h', cycle=None):
         # size [seq_len, label_len, pred_len]
         # info
         self.in_len = size[0]
@@ -87,43 +35,10 @@ class Dataset_MTS_ross_v1(Dataset):
         self.data_path = data_path
         self.data_split = data_split
         self.scale_statistic = scale_statistic
-        self.dataset_name = dataset_name
-        self.start_point = start_point
-        self.train_point = train_point
-        self.test_start = test_start
-        self.test_end = test_end
-        self.train_seed = train_seed
-        self.train_volume = train_volume
-        self.val_seed = val_seed
-        self.val_size = val_size
-        self.test_stride = test_stride
-        self.sample_indices = None
         self.__read_data__()
 
     def __read_data__(self):
-        file_path = os.path.join(self.root_path, self.data_path)
-        # if self.data_path.startswith('watershed/'):
-        #     df_raw = _preprocess_watershed_dataframe(file_path)
-        # else:
-        df_raw = pd.read_csv(file_path)
-
-        is_ross_no_rain = self.dataset_name == 'Ross_noRain'
-        has_date_args = all(x is not None for x in [self.start_point, self.train_point, self.test_start, self.test_end])
-        if is_ross_no_rain and has_date_args:
-            dt_series = pd.to_datetime(df_raw.iloc[:, 0], errors='coerce').astype(str)
-            idx_map = pd.Series(np.arange(len(dt_series)), index=dt_series)
-            try:
-                idx_start = int(idx_map[str(self.start_point)])
-                idx_train = int(idx_map[str(self.train_point)])
-                idx_test_start = int(idx_map[str(self.test_start)])
-                idx_test_end = int(idx_map[str(self.test_end)])
-            except KeyError as exc:
-                raise ValueError(f'Missing Ross_noRain split timestamp: {exc}')
-
-            df_raw = df_raw.iloc[idx_start:idx_test_end + 1].reset_index(drop=True)
-            ross_train_end = idx_train - idx_start + 1
-            ross_test_begin = idx_test_start - idx_start
-            ross_test_end = idx_test_end - idx_start + 1
+        df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
         if (self.data_split[0] < 1):
             train_num = int(len(df_raw) * self.data_split[0])
             test_num = int(len(df_raw) * self.data_split[2])
@@ -160,46 +75,12 @@ class Dataset_MTS_ross_v1(Dataset):
             data = df_data.values
         data_label = df_label.values  # raw labels, no scaling
 
-        if is_ross_no_rain and has_date_args:
-            # Keep the full date-ranged timeline; sampled indices define train/val/test membership.
-            self.data_x = data
-            self.data_y = data
-            self.data_label = data_label
-        else:
-            self.data_x = data[border1:border2]
-            self.data_y = data[border1:border2]
-            self.data_label = data_label[border1:border2]
-
-        if is_ross_no_rain and has_date_args:
-            sample_len = self.in_len + self.pred_len
-            all_train_starts = np.arange(max(0, ross_train_end - sample_len + 1))
-
-            rng_val = np.random.RandomState(0 if self.val_seed is None else int(self.val_seed))
-            val_count = min(int(self.val_size) if self.val_size is not None else 120, len(all_train_starts))
-            val_starts = rng_val.choice(all_train_starts, size=val_count, replace=False) if val_count > 0 else np.array([], dtype=int)
-
-            train_pool = np.setdiff1d(all_train_starts, val_starts, assume_unique=False)
-            rng_train = np.random.RandomState(0 if self.train_seed is None else int(self.train_seed))
-            train_count = min(int(self.train_volume) if self.train_volume is not None else len(train_pool), len(train_pool))
-            train_starts = rng_train.choice(train_pool, size=train_count, replace=False) if train_count > 0 else np.array([], dtype=int)
-
-            first_test_start = ross_test_begin - self.in_len
-            stride = max(1, int(self.test_stride))
-            test_count = int((ross_test_end - ross_test_begin - self.pred_len) / stride)
-            if test_count > 0:
-                test_starts = first_test_start + np.arange(test_count) * stride
-            else:
-                test_starts = np.array([], dtype=int)
-
-            if self.flag == 'train':
-                self.sample_indices = np.sort(train_starts.astype(int))
-            elif self.flag == 'val':
-                self.sample_indices = np.sort(val_starts.astype(int))
-            else:
-                self.sample_indices = test_starts.astype(int)
+        self.data_x = data[border1:border2]
+        self.data_y = data[border1:border2]
+        self.data_label = data_label[border1:border2]
 
     def __getitem__(self, index):
-        s_begin = int(self.sample_indices[index]) if self.sample_indices is not None else index
+        s_begin = index
         s_end = s_begin + self.in_len
         r_begin = s_end - self.label_len
         r_end = r_begin + self.label_len + self.pred_len
@@ -214,13 +95,136 @@ class Dataset_MTS_ross_v1(Dataset):
         return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y
 
     def __len__(self):
-        if self.sample_indices is not None:
-            return len(self.sample_indices)
         return len(self.data_x) - self.in_len - self.pred_len + 1
 
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
 
+
+
+class Dataset_MTS_NPY(Dataset):
+    """
+    NPY loader for pre-windowed files generated by data_processing.py.
+    Expected files under {root_path}/{data_path}:
+        train_x.npy, train_y.npy, val_x.npy, val_y.npy, test_x.npy, test_y.npy
+    """
+
+    def __init__(self, root_path, data_path, flag='train', size=None, features='M',
+                 target='OT', timeenc=0, freq='h', cycle=None, npy_mode='std',
+                 merge_to_series=False, scale_statistic=None):
+        assert flag in ['train', 'val', 'test']
+        assert size is not None and len(size) == 3, "size must be [seq_len, label_len, pred_len]"
+
+        self.seq_len = size[0]
+        self.label_len = size[1]
+        self.pred_len = size[2]
+        self.flag = flag
+        self.root_path = root_path
+        self.data_path = data_path
+        self.features = features
+        self.target = target
+        self.timeenc = timeenc
+        self.freq = freq
+        self.cycle = cycle
+        self.npy_mode = npy_mode
+        self.merge_to_series = merge_to_series
+        self.scale_statistic = scale_statistic
+
+        self.data_x = None
+        self.data_y_full = None
+        self.data_x_sel = None
+        self.data_y_target = None
+        self.series_x = None
+        self.series_y = None
+        self.series_label = None
+        self.series_cycle = None
+
+        self.__read_data__()
+
+    def __read_data__(self):
+        base_dir = os.path.join(self.root_path, self.data_path)
+        x_path = os.path.join(base_dir, f"{self.flag}_x.npy")
+        y_path = os.path.join(base_dir, f"{self.flag}_y.npy")
+
+        if not os.path.isfile(x_path):
+            raise FileNotFoundError(f"Missing file: {x_path}")
+        if not os.path.isfile(y_path):
+            raise FileNotFoundError(f"Missing file: {y_path}")
+
+        self.data_x = np.load(x_path).astype(np.float32)      # (N, seq_len, Cx)
+        self.data_y_full = np.load(y_path).astype(np.float32) # (N, out_len, Cy)
+
+        if self.data_x.ndim != 3 or self.data_y_full.ndim != 3:
+            raise ValueError("NPY shapes must be 3D: x=(N,T,Cx), y=(N,H,Cy)")
+        if self.data_x.shape[1] != self.seq_len:
+            raise ValueError(f"seq_len mismatch: x has {self.data_x.shape[1]}, expected {self.seq_len}")
+        if self.data_y_full.shape[1] < self.pred_len:
+            raise ValueError(f"pred_len mismatch: y has {self.data_y_full.shape[1]}, expected >= {self.pred_len}")
+        if self.npy_mode not in ['all', 'ori', 'std']:
+            raise ValueError("npy_mode must be one of ['all', 'ori', 'std']")
+
+        # y channel 4 = raw ground-truth in original pipeline; fallback to channel 0 for manual labels.
+        y_target_col = 4 if self.data_y_full.shape[2] > 4 else 0
+        self.data_y_target = self.data_y_full[:, :, [y_target_col]]
+
+        # x channel mapping from original get_data: ori->6, std->5, all->all.
+        if self.npy_mode == 'ori':
+            x_col = 6 if self.data_x.shape[2] > 6 else 0
+            self.data_x_sel = self.data_x[:, :, [x_col]]
+        elif self.npy_mode == 'std':
+            x_col = 5 if self.data_x.shape[2] > 5 else 0
+            self.data_x_sel = self.data_x[:, :, [x_col]]
+        else:
+            self.data_x_sel = self.data_x
+
+        if self.merge_to_series:
+            self.series_x = self.data_x_sel.reshape(-1, self.data_x_sel.shape[-1])
+            self.series_y = self.data_y_target.reshape(-1, 1)
+            self.series_label = self.series_y.copy()
+            if self.cycle is not None and self.cycle > 0:
+                self.series_cycle = (np.arange(len(self.series_x)) % self.cycle)
+            else:
+                self.series_cycle = np.arange(len(self.series_x))
+
+    def __getitem__(self, index):
+        if self.merge_to_series:
+            s_begin = index
+            s_end = s_begin + self.seq_len
+            r_begin = s_end - self.label_len
+            r_end = r_begin + self.label_len + self.pred_len
+
+            seq_x = self.series_x[s_begin:s_end]
+            seq_y = self.series_y[r_begin:r_end]
+            label_y = self.series_label[s_begin:s_end]
+            seq_x_mark = 6.5
+            seq_y_mark = 5.3
+            cycle_index = torch.tensor(self.series_cycle[s_end - 1])
+            return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y
+
+        seq_x = self.data_x_sel[index]             # (seq_len, Cx_sel)
+        y_target = self.data_y_target[index]       # (out_len, 1)
+
+        # Build decoder-aligned target: [label_len history + pred_len future]
+        history = seq_x[-self.label_len:, :1] if self.label_len > 0 else np.zeros((0, 1), dtype=np.float32)
+        future = y_target[:self.pred_len, :]
+        seq_y = np.concatenate([history, future], axis=0)
+
+        label_y = seq_x[:, :1]
+        seq_x_mark = 6.5
+        seq_y_mark = 5.3
+        if self.cycle is not None and self.cycle > 0:
+            cycle_index = torch.tensor(index % self.cycle)
+        else:
+            cycle_index = torch.tensor(index)
+        return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y
+
+    def __len__(self):
+        if self.merge_to_series:
+            return len(self.series_x) - self.seq_len - self.pred_len + 1
+        return self.data_x_sel.shape[0]
+
+    def inverse_transform(self, data):
+        return data
 
 
 class Dataset_ETT_hour(Dataset):
