@@ -64,7 +64,7 @@ class Model(nn.Module):
 
 
         # Trend
-        trend_enc = rearrange(trend_enc, 'b seq_len ts_d -> b ts_d seq_len')
+        trend_enc = rearrange(trend_enc,  'b seq_len ts_d -> b ts_d seq_len')
         trend_predict = self.trend_model(trend_enc)
         trend_predict = rearrange(trend_predict, 'b ts_d seq_len -> b seq_len ts_d')
 

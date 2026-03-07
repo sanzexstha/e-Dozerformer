@@ -33,9 +33,6 @@ class Exp_Main(Exp_Basic):
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
 
-    def _load_pretrain_model(self):
-        self.model = hierarchical_load_pretrain_model(self.model, self.args)
-
     def _get_data(self, flag):
         data_set, data_loader = data_provider(self.args, flag)
         return data_set, data_loader
@@ -83,13 +80,21 @@ class Exp_Main(Exp_Basic):
             self.model.train()
 
             train_loss = []
-            for i, (batch_x, batch_y, batch_label) in enumerate(train_loader):
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label) in enumerate(train_loader):
                 optimizer.zero_grad()
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+                if 'PEMS' in self.args.data or 'Solar' in self.args.data:
+                    batch_x_mark = None
+                    batch_y_mark = None
+                else:
+                    batch_x_mark = batch_x_mark.float().to(self.device)
+                    batch_y_mark = batch_y_mark.float().to(self.device)
                 # from utils.tools import Cal_FLOPs
                 #
                 # Cal_FLOPs(self.model, input[[0]])
 
-                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_label, self.args)
+                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, self.args)
                 # if i == 0:
                 #     # e.g., first encoder layer’s attention
                 #     print(f"QK FLOPs = {self.model.encoder_seasonal.encoder.attn_layers[0].attention.inner_attention.flops_accum.item():.2f} MFLOPS")
@@ -135,16 +140,17 @@ class Exp_Main(Exp_Basic):
                 break
 
         best_model_path = path + '/' + 'checkpoint.pth'
-        self.model.load_state_dict(torch.load(best_model_path))
-
+        # self.model.load_state_dict(torch.load(best_model_path))
+        checkpoint = torch.load(best_model_path, map_location=self.device)
+        self.model.load_state_dict(checkpoint)
         return self.model
 
     def vali(self, vali_data, vali_loader, criterion, epoch=None):
         total_loss = []
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_label) in enumerate(vali_loader):
-                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_label,  self.args)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label) in enumerate(vali_loader):
+                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label,  self.args)
 
                 outputs = outputs.detach().cpu()
                 batch_y = batch_y.detach().cpu()
@@ -170,8 +176,8 @@ class Exp_Main(Exp_Basic):
 
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, batch_y, batch_label) in enumerate(test_loader):
-                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_label, self.args)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label) in enumerate(test_loader):
+                outputs, batch_y = process_one_batch(self.model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, self.args)
 
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()

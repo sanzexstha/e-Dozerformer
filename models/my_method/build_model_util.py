@@ -267,3 +267,49 @@ class series_decomp_multi(nn.Module):
         sea = sum(res) / len(res)
         moving_mean = sum(moving_mean) / len(moving_mean)
         return sea, moving_mean
+
+
+class series_decomp_multi_learnable(nn.Module):
+    """
+    Series decomposition block with learnable MA fusion
+    """
+    def __init__(self, kernel_size, channels, per_channel=True):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.moving_avg = nn.ModuleList(
+            [moving_avg(kernel, stride=1) for kernel in kernel_size]
+        )
+        self.K = len(kernel_size)
+
+        # learnable logits → softmax weights
+        if per_channel:
+            # one weight per MA per channel
+            self.alpha_logit = nn.Parameter(torch.zeros(1, 1, channels, self.K))
+        else:
+            # global weights
+            self.alpha_logit = nn.Parameter(torch.zeros(1, 1, 1, self.K))
+
+    def forward(self, x):
+        """
+        x: (B, L, D)
+        """
+        ma_list = []
+        res_list = []
+
+        for func in self.moving_avg:
+            ma = func(x)          # (B,L,D)
+            ma_list.append(ma)
+            res_list.append(x - ma)
+
+        # stack: (B,L,D,K)
+        ma_stack  = torch.stack(ma_list, dim=-1)
+        res_stack = torch.stack(res_list, dim=-1)
+
+        # softmax weights (convex combination)
+        alpha = torch.softmax(self.alpha_logit, dim=-1)  # sum_K = 1
+
+        # weighted fusion
+        moving_mean = (ma_stack * alpha).sum(dim=-1)
+        sea = (res_stack * alpha).sum(dim=-1)
+
+        return sea, moving_mean

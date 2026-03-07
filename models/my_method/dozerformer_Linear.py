@@ -6,7 +6,8 @@ from einops import rearrange
 from models.my_method.dozerformer_EncDec import dozerformer_Encoder, dozerformer_Decoder
 
 from models.REVIN import RevIN
-from models.my_method.build_model_util import series_decomp_multi
+from models.my_method.build_model_util import series_decomp_multi, series_decomp_multi_learnable
+from models.my_method.trend import SKFusionST, SKFusion_v2
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -25,43 +26,54 @@ class Model(nn.Module):
         self.decoder_embed_dim = configs.decoder_embed_dim
         self.dropout = configs.dropout
         self.epoch = 0
+        self.fusion = configs.fusion
+        # self.d_model = 256
         configs.activation = 'gelu'
 
         self.revin_layer = RevIN(self.in_channel, affine=True, subtract_last=False)
-        self.revin_layer_dec = RevIN(self.in_channel, affine=True, subtract_last=False)
 
         # Decomposition
         self.decomp_multi = series_decomp_multi(configs.moving_avg)
-
         # Seasonal encoder and decoder
         self.encoder_seasonal = dozerformer_Encoder(configs, mode='Seasonal')
-        self.decoder_seasonal = dozerformer_Decoder(configs, mode='Seasonal')
 
         self.output_layer_2 = nn.Conv2d(in_channels=self.embed_dim,
                                       out_channels=1,
                                       kernel_size=(1, 1))
         self.output_layer_1 = nn.Linear(configs.seq_len, configs.pred_len)
-
-        # Trend Encoder and Decoder
         self.trend_model = nn.Linear(configs.seq_len, configs.pred_len)
+        if self.fusion == 'EIA':
+            self.attention_mlp = nn.Sequential(
+                nn.Linear(self.in_channel * 2, self.in_channel),
+                nn.GELU(),
+                nn.Dropout(0.1),
+                nn.Linear(self.in_channel, self.in_channel),
+                nn.Sigmoid()
+            )
+            self._init_eia_weights()
+        elif self.fusion == 'ADT':
+            # self.st_fusion = SKFusion_v2(ts_d=self.in_channel)
+            self.st_fusion = SKFusionST(C=self.in_channel)
 
 
-    def forward(self, x_enc, x_dec, x_label,
+    def _init_eia_weights(self):
+        for layer in self.attention_mlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.zeros_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+    def forward(self, x_enc, x_mark_enc, seq_y_mark, x_dec, x_label, phase,
                 enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None
                 ) -> torch.tensor:
-        x_enc = self.revin_layer(x_enc, 'norm')
 
-        x_enc, trend_enc = self.decomp_multi(x_enc)
-        x_dec, trend_dec = self.decomp_multi(x_dec)
+        x_norm = self.revin_layer(x_enc, 'norm')
+
+        x_enc, trend_enc = self.decomp_multi(x_norm)
 
         # Encoder
-        encoder_output = self.encoder_seasonal(x_enc, x_label)
-        # decoder_output = self.decoder_seasonal(x_dec, encoder_output)
+        encoder_output = self.encoder_seasonal(x_enc, x_label, x_mark_enc, phase)
 
-        # # Inference from Decoder's output
-        # seasonal_predict = self.decoder_seasonal.decoder_segment.concat(decoder_output)
-        # seasonal_predict = self.output_layer(seasonal_predict)
-        # seasonal_predict = rearrange(seasonal_predict, 'b 1 seq_len ts_d -> b seq_len ts_d')[:, -self.pred_len:, :]
         encoder_output = self.encoder_seasonal.encoder_segment.concat(encoder_output)
         encoder_output = rearrange(encoder_output, 'b emb seq_len ts_d -> b emb ts_d seq_len')
 
@@ -69,14 +81,19 @@ class Model(nn.Module):
         seasonal_predict = self.output_layer_2(seasonal_predict)
         seasonal_predict = rearrange(seasonal_predict, 'b 1 ts_d seq_len -> b seq_len ts_d')
 
-
         # Trend
         trend_enc = rearrange(trend_enc, 'b seq_len ts_d -> b ts_d seq_len')
         trend_predict = self.trend_model(trend_enc)
         trend_predict = rearrange(trend_predict, 'b ts_d seq_len -> b seq_len ts_d')
 
-        # Concate Trend and Seasonal
-        final_predict = seasonal_predict + trend_predict
+        # # Concate Trend and Seasonal
+        if self.fusion == 'EIA':
+            fusion_weights = self.attention_mlp(torch.cat([seasonal_predict, trend_predict], dim=-1))
+            final_predict = 2 * (fusion_weights * seasonal_predict + (1 - fusion_weights) * trend_predict)
+        elif self.fusion == 'ADT':
+            final_predict = self.st_fusion(seasonal_predict, trend_predict)
+        else:
+            final_predict = seasonal_predict + trend_predict
 
         # Inverse Revin
         final_predict = self.revin_layer(final_predict, 'denorm')

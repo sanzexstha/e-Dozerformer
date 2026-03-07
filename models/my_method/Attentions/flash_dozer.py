@@ -3,10 +3,11 @@ import torch.nn as nn
 from math import sqrt
 from einops import repeat
 from flash_sparse_attn import flash_sparse_attn_func_auto
+from models.my_method.Attentions.attention_masking import SparseMask, show_mask
 
 class DozerAttention(nn.Module):
     def __init__(self, local_window, stride, rand_rate, vary_len, pred_len,
-                 in_channel, mask_flag=True, scale=None,
+                 in_channel, mask_flag=True, scale=None, mask='dozer',
                  attention_dropout=0.1, output_attention=False):
         super(DozerAttention, self).__init__()
         self.scale = scale
@@ -19,58 +20,46 @@ class DozerAttention(nn.Module):
         self.in_channel = in_channel
         self.output_attention = output_attention
         self.dropout = nn.Dropout(attention_dropout)
+        self.mask = mask
         # self.register_buffer("flops_accum", torch.zeros(1))
 
 
     def forward(self, queries, keys, values, x_label, attn_mask):
-        # queries: [B, L_Q, H, D]
         B, L_Q, H, D = queries.shape
         _, L_K, _, _ = keys.shape
         batch_size, _, _ = x_label.shape
         orig_dtype = queries.dtype
 
         scale = self.scale or 1. / sqrt(D)
-
-        # Build Dozer-style mask
-        # base local/stride mask: [L_Q, L_K]
-        dozer_mask = torch.zeros(L_Q, L_K, device=queries.device, dtype=torch.bool)
-
         if L_Q == L_K:
-            if self.local_window:
-                for w_idx in range(self.local_window//2+1):
-                    dozer_mask = torch.diagonal_scatter(dozer_mask, torch.ones(L_Q - w_idx), w_idx)
-                    dozer_mask = torch.diagonal_scatter(dozer_mask, torch.ones(L_Q - w_idx), -w_idx)
+            # mask types: 'extreme_mask', 'dozer', 'dozer_ext_only', 'dozer_ext_0', 'dozer_ext_null', 'dozer_AND_ext'
 
-            if self.stride:
-                stride = self.stride + 1
-                for w_idx in range(0, L_Q, stride):
-                    dozer_mask = torch.diagonal_scatter(dozer_mask, torch.ones(L_Q - w_idx), w_idx)
-                    dozer_mask = torch.diagonal_scatter(dozer_mask, torch.ones(L_Q - w_idx), -w_idx)
-            b = dozer_mask.detach().cpu().numpy()
-            # vectorized content-aware mask
-            labels = x_label[:, :, 0]  # [batch_size, L_Q]
-            adapt_mask = labels.unsqueeze(2).eq(labels.unsqueeze(1))  # [batch_size, L_Q, L_K], bool
+            sparse_mask = SparseMask(x_label, self.local_window, self.stride, queries.device, batch_size, L_Q, L_K)
+            base_mask = sparse_mask.generate_mask(mask=self.mask)
 
-            # combine locality + content
-            # adapt mask perform better than combination with dozer_mask
-            base_mask = adapt_mask & dozer_mask.unsqueeze(0)  # [batch_size, L_Q, L_K]
-            # base_mask = adapt_mask
-            # base_mask = dozer_mask.unsqueeze(0).expand(batch_size, -1, -1)
+            dozer_np = sparse_mask.visualize_mask(mask='dozer')
+            masks = sparse_mask.visualize_mask(mask='all')
+            extreme_np = masks['extreme_mask']
+            # Normal query attend to Dozer keys, extreme query attend to dozer keys and extreme keys
+            # This is the implementation of Sanjeev on Feb 19.
+            dozer_ext_only = masks['dozer_ext_only']
 
-            # base_mask = adapt_mask  # [batch_size, L_Q, L_K]
+            # Normal query attend keys from Dozer and Extreme after AND operator, key has to be True in both attention matrix to be select.
+            # This is the implementation Yifan asked to implement on Feb 19.
+            dozer_ext_0 = masks['dozer_ext_0']
 
-            a = base_mask[0].detach().cpu().numpy()
-            Nnz = adapt_mask.sum().item()
+            # Extreme query doesn't attend any keys. All False in rows (queries) with extreme label (1)
+            dozer_ext_null = masks['dozer_ext_null']
 
-            # expand to B = batch_size * in_channel
+            # This implementation apply AND operation to Dozer and Extreme Mask directly. Possibly for extreme query, there will be no key selected.
+            # But, in usual, this has little differences with dozer_ext_only and dozer_ext_0
+            dozer_AND_ext = masks['dozer_AND_ext']
+            full_mask = masks['full_mask']
+            dozer_ext_0_v1 = masks['dozer_ext_0_v1']
+            dozer_v1 = masks['dozer_v1']
             adapt_dozer_mask = repeat(base_mask, 'b seg_num c -> (b ts_d) seg_num c', ts_d=self.in_channel)
-
-            # Final mask for FSA: [B, H, L_Q, L_K] (bool)
-            # attn_mask = adapt_dozer_mask.unsqueeze(1)
             attn_mask = adapt_dozer_mask.unsqueeze(1).expand(-1, H, -1, -1)
 
-
-        # Run Flash Sparse Attention
         flash_sparse_attn_func = flash_sparse_attn_func_auto(backend="cuda")
         target_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
@@ -79,7 +68,6 @@ class DozerAttention(nn.Module):
         values  = values.to(target_dtype)
 
         # active = attn_mask.to(torch.bool).sum()
-
         # flops = 2 * H * active * D
 
         attn = flash_sparse_attn_func(

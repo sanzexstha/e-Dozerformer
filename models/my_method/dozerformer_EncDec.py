@@ -12,7 +12,7 @@ from math import ceil
 import torch
 from einops import rearrange, reduce, repeat
 
-def labels_to_segments(y, patch_size, in_channel=None):
+def labels_to_segments(y, patch_size, patch_thres, in_channel=None):
     B, L, C = y.shape
     seg_num = L // patch_size  # number of segments
 
@@ -22,12 +22,19 @@ def labels_to_segments(y, patch_size, in_channel=None):
 
     # count number of 1s in each patch
     count_ones = reduce(y_seg, 'b seg_num seg_len c -> b seg_num c', 'sum')  # (B, S, 1)
+    #
+    # # # threshold rule: if more than 1 '1' in the patch
+    # for ETTh1 3,
+    # for exhange 4
+    # for ETTh2 5, w=24, s=1, k=90
+    y_major = (count_ones >= patch_thres).to(y.dtype)
 
-    # threshold rule: if more than 1 '1' in the patch
-    y_major = (count_ones >= 1).to(y.dtype)
-
-    # if in_channel is not None:
-    #     y_major = repeat(y_major, 'b seg_num c -> (b ts_d) seg_num c', ts_d=in_channel)  # (out_batch, S, 1)
+    # # compute percentage of extreme points in each patch
+    # patch_len = y_seg.shape[2]
+    # extreme_ratio = count_ones / patch_len
+    #
+    # # majority vote (more than 50%)
+    # y_major = (extreme_ratio >= patch_thres).to(y.dtype)
 
     return y_major
 
@@ -40,9 +47,11 @@ class dozerformer_Encoder(nn.Module):
         self.in_channel = configs.data_dim
         self.seq_len = configs.seq_len
         self.batch_size = configs.batch_size
-
-        d_model = configs.embed_dim*configs.patch_size
-        d_ff = configs.d_ff*configs.patch_size
+        self.cycle_len = configs.cycle
+        self.embed_dim = configs.embed_dim
+        self.patch_thres = configs.patch_thres
+        self.d_model = configs.embed_dim*configs.patch_size
+        self.d_ff = configs.d_ff*configs.patch_size
         # Embedding是非常重要的问题
         self.encoder_val_embedding = DI_embedding(configs.patch_size, configs.embed_dim, configs.dropout)
         self.encoder_segment = TS_Segment(configs.seq_len, configs.patch_size)
@@ -52,21 +61,21 @@ class dozerformer_Encoder(nn.Module):
                                                             configs.patch_size,
                                                             self.in_channel
                                                             ))
-        self.encoder_pre_norm = nn.LayerNorm(d_model)
-        self.encoder_norm = nn.LayerNorm(d_model)
+        self.encoder_pre_norm = nn.LayerNorm(self.d_model)
+        self.encoder_norm = nn.LayerNorm(self.d_model)
         # Attention
         self.encoder = Encoder(
             [EncoderLayer(
                 DozerAttentionLayer(
                     DozerAttention(configs.local_window, configs.stride, configs.rand_rate,
                                     configs.vary_len, self.encoder_segment.seg_num, self.in_channel,
-                                    False,
+                                    False, mask=configs.mask,
                                     attention_dropout=configs.dropout,
                                     output_attention=configs.output_attention),
-                    d_model,
+                    self.d_model,
                     configs.n_heads),
-                d_model=d_model,
-                d_ff=d_ff,
+                d_model=self.d_model,
+                d_ff=self.d_ff,
                 dropout=configs.dropout,
                 activation=configs.activation
             ) for l in range(configs.encoder_depth)
@@ -74,26 +83,58 @@ class dozerformer_Encoder(nn.Module):
             norm_layer=None
         )
 
+        # self.fc_embed1 = nn.Linear(self.patch_size * configs.embed_dim, 512)
+        # self.fc_embed2 = nn.Linear(512, self.patch_size * configs.embed_dim)
+        # self.seg_num = self.seq_len // self.patch_size
+        #
+        #
+        # self.patch_embedding = nn.Parameter(torch.zeros(self.seg_num, self.d_model))
+        # self.phase_embedding = nn.Embedding(self.cycle_len, self.d_model)
+        # nn.init.xavier_normal_(self.phase_embedding.weight)
+        # self.joint_embedding = nn.Embedding(self.cycle_len, self.seg_num  * self.d_model)
+        # nn.init.xavier_normal_(self.joint_embedding.weight)
+        # nn.init.xavier_normal_(self.patch_embedding)
 
 
-    def forward(self, x_enc, x_label):
+        # self.projection = nn.Linear(self.d_model, self.patch_size * configs.embed_dim)
+
+
+    def forward(self, x_enc, x_label, x_mark_enc, phase):
         embeddings = self.encoder_val_embedding(rearrange(x_enc, 'b seq_len ts_d -> b 1 seq_len ts_d'))
         # Segment
         patches = self.encoder_segment(embeddings)
         identity = patches
         # Add pos
         patches = patches + self.encoder_pos_embed
-
         patches = rearrange(patches, 'b d_model seg_num seg_len ts_d -> (b ts_d) seg_num (seg_len d_model)')
+        # Lrelu = nn.LeakyReLU(0.1)
+        # relu = nn.ReLU()
+        # T = nn.Tanh()
+        # # # EFE embedding
+        # patches = self.fc_embed2(T(self.fc_embed1(patches)))
+
+        # B, L, d_model = patches.shape
+
+        # phase: (B,)
+        # phase_pre = phase.repeat_interleave(self.in_channel)  # (B*ts_d,) = (224,)
+        # phase_post = phase_pre.view(-1, 1).expand(-1, L)  # (224, 30) => (B, L)
+
+        # patch_emb = self.patch_embedding.expand(B, L, -1)  # Patch embedding
+        # phase_emb = self.phase_embedding(phase_post)  # Phase embedding
+        # joint_emb = self.joint_embedding(phase_pre).reshape(B, L, self.d_model)  # Joint Patch-Phase embedding
+
+        # patches =  patches + patch_emb + phase_emb + joint_emb
+
         # PreNorm
         patches = self.encoder_pre_norm(patches)
         #majority vote [batch, num , 1]
-        patches_label = labels_to_segments(x_label, patch_size=self.patch_size, in_channel=self.in_channel)  # -> (224,30,1)
+        patches_label = labels_to_segments(x_label, patch_size=self.patch_size, patch_thres=self.patch_thres, in_channel=self.in_channel)  # -> (224,30,1)
 
         encoder_output, attns = self.encoder(patches, patches_label)
 
         # PostNorm
         encoder_output = self.encoder_norm(encoder_output)
+        # encoder_output = self.projection(encoder_output)
 
         # skip connection
         encoder_output = rearrange(encoder_output,
@@ -135,7 +176,7 @@ class dozerformer_Decoder(nn.Module):
                     DozerAttentionLayer(
                         DozerAttention(configs.local_window, configs.stride, configs.rand_rate, configs.vary_len,
                                        pred_segs,
-                                       False,
+                                       False, mask=configs.mask,
                                        attention_dropout=configs.dropout,
                                        output_attention=False),
                         d_model,
@@ -144,7 +185,7 @@ class dozerformer_Decoder(nn.Module):
                     DozerAttentionLayer(
                         DozerAttention(configs.local_window, configs.stride, configs.rand_rate, configs.vary_len,
                                        pred_segs,
-                                       False,
+                                       False, mask=configs.mask,
                                        attention_dropout=configs.dropout,
                                        output_attention=False),
                         d_model,

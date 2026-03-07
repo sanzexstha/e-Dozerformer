@@ -1,13 +1,22 @@
+# ~10 mins
+# Random Seeds
 seeds=(2023)
-#masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer_ext_0 dozer_v1)
 
-lr=5e-5
+# Mask types
+#masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
+masks=(dozer_v1)
+#masks=(dozer)
+
+patches_thes=(2 3 4 5)
+#patches_thes=(2)
+
+lr=1e-4
 model=dozerformer_Linear
-patch_size=48
-patches_thes=(1 2 3 4 5 6 7 8 9 10)
-local_window=2
-stride=4
+patch_size=24
+
+# Dozer attention parameters
+local_window=3
+stride=3
 vary_len=1
 
 for patch_thres in "${patches_thes[@]}"
@@ -16,14 +25,17 @@ do
   do
     for seed in "${seeds[@]}"
     do
-        echo "==================================================================="
-        echo "Dataset: ETTm2 | Seed: $seed | Mask: $mask | thres: $patch_thres"
-        echo "==================================================================="
+      echo "===================================================================="
+      echo "Dataset: Weather | Seed: $seed | Mask: $mask | thres: $patch_thres"
+      echo "===================================================================="
+
       for pred_len in 96 192 336 720
       do
+        echo "Prediction Length: $pred_len"
+
         python run.py \
         --seed "$seed" \
-        --data ETTm2_labeled \
+        --data Weather_labeled \
         --model "$model" \
         --moving_avg '13, 17' \
         --seq_len 720 \

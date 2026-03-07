@@ -199,12 +199,27 @@ def Cal_FLOPs(model, batch_x, dec_inp, batch_label):
     # print(f"FLOPs: {flops}, Params: {params / 1e6:.3f} M")
     return 0
 
+# attn_mask: bool tensor, True = attend, False = don't attend
+# output attn_bias: same dtype/device as q, with 0 for allowed, big negative for blocked
+def mask_to_bias(attn_mask: torch.Tensor, q: torch.Tensor, neg_val: float | None = None):
+    attn_mask = attn_mask.to(device=q.device)
+
+    if neg_val is None:
+        # safe default for fp16/bf16 kernels (avoid -inf sometimes)
+        neg_val = -1e4 if q.dtype == torch.float16 else -1e9
+
+    attn_bias = torch.zeros_like(attn_mask, dtype=q.dtype, device=q.device)
+    attn_bias = attn_bias.masked_fill(~attn_mask, neg_val)
+    return attn_bias
 
 
-def process_one_batch(model, batch_x, batch_y, batch_label, args):
+
+
+def process_one_batch(model, batch_x, batch_y, batch_x_mark, batch_y_mark, batch_cycle, batch_label, args):
     batch_x = batch_x.float().to(args.device)
     batch_y = batch_y.float().to(args.device)
     batch_label = batch_label.float().to(args.device)
+    batch_cycle = batch_cycle.int().to(args.device)
 
     # decoder input
     dec_inp = torch.zeros_like(batch_y[:, -args.pred_len:, :]).float()
@@ -215,14 +230,14 @@ def process_one_batch(model, batch_x, batch_y, batch_label, args):
     if args.use_amp:
         with torch.cuda.amp.autocast():
             if args.output_attention:
-                outputs = model(batch_x, dec_inp, batch_label)[0]
+                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)[0]
             else:
-                outputs = model(batch_x, dec_inp, batch_label)
+                outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)
     else:
         if args.output_attention:
-            outputs, attns = model(batch_x, dec_inp, batch_label)
+            outputs, attns = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)
         else:
-            outputs = model(batch_x, dec_inp, batch_label)
+            outputs = model(batch_x, batch_x_mark, batch_y_mark, dec_inp, batch_label, batch_cycle)
 
         f_dim = -1 if args.features == 'S' else 0
 
