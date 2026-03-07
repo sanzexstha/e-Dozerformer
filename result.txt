@@ -5239,3 +5239,18 @@ mse:0.44084614515304565, mae:0.14281295239925385
 finetune_dozerformer_Linear_Ross_noRain_ftM_sl720_ll96_pl192_segl24_dm8_nh4_el2_dl1_mask_dozer_ext_0  
 mse:0.4703870713710785, mae:0.13632628321647644
 
+finetune_dozerformer_Linear_Lexington_ftM_sl360_ll96_pl72_segl24_dm8_nh4_el2_dl1_mask_dozer  
+rmse:11837.630859375, mape:0.0
+
+finetune_dozerformer_Linear_Lexington_ftM_sl360_ll96_pl72_segl24_dm8_nh4_el2_dl1_mask_dozer_v1  
+rmse:11837.634765625, mape:0.000
+
+finetune_dozerformer_Linear_Lexington_ftM_sl360_ll96_pl72_segl12_dm8_nh4_el2_dl1_mask_dozer_v1  
+rmse:11836.7919921875, mape:0.000
+
+finetune_dozerformer_Linear_Lexington_ftM_sl360_ll96_pl72_segl8_dm8_nh4_el2_dl1_mask_dozer_v1  
+rmse:11836.6826171875, mape:58127.590
+
+finetune_dozerformer_Linear_Lexington_ftM_sl360_ll96_pl72_segl8_dm8_nh4_el2_dl1_mask_dozer_v1  
+rmse:11836.6826171875, mape:54468.727
+

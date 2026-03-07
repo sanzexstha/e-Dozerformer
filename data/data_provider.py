@@ -1,4 +1,4 @@
-from data.data_loader import Dataset_MTS, Dataset_ETT_hour, Dataset_ETT_minute
+from data.data_loader import Dataset_MTS, Dataset_MTS_NPY, Dataset_ETT_hour, Dataset_ETT_minute
 from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy
@@ -10,8 +10,8 @@ data_dict = {
     'ETTm2_labeled': Dataset_ETT_minute,
     'Weather_labeled': Dataset_MTS,
     'Exchange_labeled': Dataset_MTS,
-    'Ross_S_fixed': Dataset_MTS,
-    'Ross_noRain': Dataset_MTS,
+    'Coyote': Dataset_MTS_NPY,
+    'Lexington': Dataset_MTS_NPY,
     # 'Solar': Dataset_Solar,
     # 'PEMS': Dataset_PEMS,
     # 'custom': Dataset_Custom,
@@ -67,6 +67,11 @@ def data_provider(args, flag):
             val_seed=getattr(args, 'val_seed', None),
             val_size=getattr(args, 'val_size', None),
             test_stride=getattr(args, 'test_stride', 16),
+        )
+    elif Data is Dataset_MTS_NPY:
+        data_kwargs.update(
+            npy_mode=getattr(args, 'npy_mode', 'std'),
+            merge_to_series=getattr(args, 'merge_to_series', False),
         )
     data_set = Data(**data_kwargs)
     print(flag, len(data_set))

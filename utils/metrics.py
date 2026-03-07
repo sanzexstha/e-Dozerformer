@@ -45,17 +45,17 @@ def metric(pred, true):
     corr = Corr(pred, true)
     return mae,mse,rmse,mape,mspe,corr
 
-def MAPE(v, v_, axis=None):
-    '''
-    Mean absolute percentage error.
-    :param v: np.ndarray or int, ground truth.
-    :param v_: np.ndarray or int, prediction.
-    :param axis: axis to do calculation.
-    :return: int, MAPE averages on all elements of input.
-    '''
-    mape = (np.abs(v_ - v) / np.abs(v) + 1e-5).astype(np.float64)
-    mape = np.where(mape > 5, 0, mape)
-    return np.mean(mape, axis)
+# def MAPE(v, v_, axis=None):
+#     '''
+#     Mean absolute percentage error.
+#     :param v: np.ndarray or int, ground truth.
+#     :param v_: np.ndarray or int, prediction.
+#     :param axis: axis to do calculation.
+#     :return: int, MAPE averages on all elements of input.
+#     '''
+#     mape = (np.abs(v_ - v) / np.abs(v) + 1e-5).astype(np.float64)
+#     mape = np.where(mape > 5, 0, mape)
+#     return np.mean(mape, axis)
 
 
 def RMSE(v, v_, axis=None):
@@ -68,6 +68,8 @@ def RMSE(v, v_, axis=None):
     '''
     return np.sqrt(np.mean((v_ - v) ** 2, axis)).astype(np.float64)
 
+def MAPE(v, v_, axis=None):
+    return np.mean(np.abs((v_ - v) / (np.abs(v) + 1e-5)), axis)
 
 def MAE(v, v_, axis=None):
     '''
