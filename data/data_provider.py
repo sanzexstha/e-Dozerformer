@@ -1,4 +1,10 @@
-from data.data_loader import Dataset_MTS, Dataset_MTS_NPY, Dataset_ETT_hour, Dataset_ETT_minute
+from data.data_loader import (
+    Dataset_MTS,
+    Dataset_MTS_NPY,
+    Dataset_DAN_Watershed,
+    Dataset_ETT_hour,
+    Dataset_ETT_minute,
+)
 from torch.utils.data import Dataset, DataLoader
 import torch
 import numpy
@@ -12,6 +18,18 @@ data_dict = {
     'Exchange_labeled': Dataset_MTS,
     'Coyote': Dataset_MTS_NPY,
     'Lexington': Dataset_MTS_NPY,
+    'Ross_noRain': Dataset_DAN_Watershed,
+    'Ross_S_fixed': Dataset_DAN_Watershed,
+    'Saratoga_S_fixed': Dataset_DAN_Watershed,
+    'SFC_S_fixed': Dataset_DAN_Watershed,
+    'UpperPen_S_fixed': Dataset_DAN_Watershed,
+    'Saratoga_noRain': Dataset_DAN_Watershed,
+    'SFC_noRain': Dataset_DAN_Watershed,
+    'UpperPen_noRain': Dataset_DAN_Watershed,
+    'Ross': Dataset_DAN_Watershed,
+    'Saratoga': Dataset_DAN_Watershed,
+    'SFC': Dataset_DAN_Watershed,
+    'UpperPen': Dataset_DAN_Watershed,
     # 'Solar': Dataset_Solar,
     # 'PEMS': Dataset_PEMS,
     # 'custom': Dataset_Custom,
@@ -55,7 +73,7 @@ def data_provider(args, flag):
         freq=freq,
         cycle=args.cycle,
     )
-    if Data is Dataset_MTS:
+    if Data is Dataset_DAN_Watershed:
         data_kwargs.update(
             dataset_name=args.data,
             start_point=getattr(args, 'start_point', None),
@@ -67,6 +85,11 @@ def data_provider(args, flag):
             val_seed=getattr(args, 'val_seed', None),
             val_size=getattr(args, 'val_size', None),
             test_stride=getattr(args, 'test_stride', 16),
+            watershed=getattr(args, 'watershed', 1),
+            rain_data_path=getattr(args, 'rain_data_path', None),
+            oversampling=getattr(args, 'oversampling', 80),
+            event_focus_level=getattr(args, 'event_focus_level', 18),
+            dan_norm_type=getattr(args, 'dan_norm_type', 'logstd'),
         )
     elif Data is Dataset_MTS_NPY:
         data_kwargs.update(

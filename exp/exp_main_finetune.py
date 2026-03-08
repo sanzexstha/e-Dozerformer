@@ -225,7 +225,12 @@ class Exp_Main(Exp_Basic):
         wandb.log(metric_dict) if self.args.wandb == True else None
 
         reservoir_metric_datasets = {
-            'Coyote', 'Lexington', 'Almaden', 'Stevens_Creek', 'Vasona', 'Ross_noRain', 'MTS_npy'
+            'Coyote', 'Lexington', 'Almaden', 'Stevens_Creek', 'Vasona',
+            'Ross_noRain', 'Ross', 'Ross_S_fixed',
+            'Saratoga', 'Saratoga_S_fixed', 'Saratoga_noRain',
+            'SFC', 'SFC_S_fixed', 'SFC_noRain',
+            'UpperPen', 'UpperPen_S_fixed', 'UpperPen_noRain',
+            'MTS_npy'
         }
         show_extended_metrics = self.args.data in reservoir_metric_datasets
 

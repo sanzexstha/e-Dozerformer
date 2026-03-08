@@ -89,9 +89,11 @@ def main():
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
     parser.add_argument('--norm_type', type=str, default='std', choices=['all', 'ori', 'std'],
                         help='channel selection mode for MTS_npy dataset')
+    parser.add_argument('--dan_norm_type', type=str, default='logstd', choices=['logstd', 'zscore'],
+                        help='normalization mode for Dan watershed datasets')
     parser.add_argument('--merge_to_series', type=str2bool, default=False,
                         help='flatten (N,T,C)->(N*T,C) and use sliding windows for MTS_npy')
-    # Ross_noRain date/sampling split (optional, used when --data Ross_noRain)
+    # Dan watershed date/sampling split options.
     parser.add_argument('--start_point', type=str, default=None, help='start time for training timeline')
     parser.add_argument('--train_point', type=str, default=None, help='end time for training timeline')
     parser.add_argument('--test_start', type=str, default=None, help='start time for test timeline')
@@ -101,6 +103,10 @@ def main():
     parser.add_argument('--train_volume', type=int, default=30000, help='number of sampled train windows')
     parser.add_argument('--val_size', type=int, default=120, help='number of sampled val windows')
     parser.add_argument('--test_stride', type=int, default=16, help='test window stride')
+    parser.add_argument('--rain_data_path', type=str, default=None, help='rain dataset file for Dan watershed loader')
+    parser.add_argument('--watershed', type=int, default=1, help='1: use rain signal, 0: use GMM outlier indicator')
+    parser.add_argument('--oversampling', type=float, default=80, help='Kruskal H threshold for Dan train sampling')
+    parser.add_argument('--event_focus_level', type=int, default=18, help='random acceptance percent when H threshold not met')
 
     #fusion
     parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
@@ -114,7 +120,15 @@ def main():
 
     args = parser.parse_args()
 
-    if args.data == 'Ross_noRain':
+    watershed_datasets = {
+        'Ross_noRain', 'Ross_S_fixed', 'Ross',
+        'Saratoga_S_fixed', 'Saratoga', 'Saratoga_noRain',
+        'SFC_S_fixed', 'SFC', 'SFC_noRain',
+        'UpperPen_S_fixed', 'UpperPen', 'UpperPen_noRain',
+    }
+    no_rain_datasets = {'Ross_noRain', 'Saratoga_noRain', 'SFC_noRain', 'UpperPen_noRain'}
+
+    if args.data in watershed_datasets:
         if args.start_point is None:
             args.start_point = '1988-01-01 14:30:00'
         if args.train_point is None:
@@ -123,6 +137,8 @@ def main():
             args.test_start = '2021-09-01 00:30:00'
         if args.test_end is None:
             args.test_end = '2022-05-31 23:30:00'
+    if args.data in no_rain_datasets:
+        args.watershed = 0
 
     # fix the seed for reproducibility, default 2023
     seed = args.seed
@@ -171,7 +187,18 @@ def main():
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
         'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
-        'Ross_noRain': {'data': 'watershed/Ross_S_fixed_labeled.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross_noRain': {'data': 'Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross_S_fixed': {'data': 'Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross': {'data': 'Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Saratoga_S_fixed': {'data': 'Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Saratoga': {'data': 'Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Saratoga_noRain': {'data': 'Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'SFC_S_fixed': {'data': 'SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'SFC': {'data': 'SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'SFC_noRain': {'data': 'SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'UpperPen_S_fixed': {'data': 'UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'UpperPen': {'data': 'UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'UpperPen_noRain': {'data': 'UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Coyote': {'data': 'reservoir/Coyote/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Lexington': {'data': 'reservoir/Lexington/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
     }
