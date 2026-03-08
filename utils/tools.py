@@ -120,6 +120,7 @@ class StandardScaler():
         std = torch.from_numpy(self.std).type_as(data).to(data.device) if torch.is_tensor(data) else self.std
         return (data * std) + mean
 
+
 def visual(true, preds=None, name='./pic/test.pdf'):
     """
     Results visualization
@@ -154,6 +155,32 @@ def string_split(str_for_split):
     value_list = [eval(x) for x in str_split]
 
     return value_list
+
+# def get_statistical(file_path):
+#     statistics_data = torch.load(os.path.join(file_path, "mean_std_mini.pt"))
+#
+#     train_diff_mean = statistics_data['diff_mean']
+#     train_diff_std = statistics_data['diff_std']
+#     train_min = statistics_data['mini']
+#     train_mean = statistics_data['stdn_mean']
+#     train_std = statistics_data['stdn_std']
+#
+#     return train_diff_mean, train_diff_std, train_min, train_mean, train_std
+
+def get_statistical(file_path):
+    stats_path = os.path.join(file_path, "mean_std_mini.pt")
+    try:
+        statistics_data = torch.load(stats_path, map_location='cpu', weights_only=False)
+    except TypeError:
+        # for older torch versions that don't support weights_only
+        statistics_data = torch.load(stats_path, map_location='cpu')
+
+    train_diff_mean = statistics_data['diff_mean']
+    train_diff_std = statistics_data['diff_std']
+    train_min = statistics_data['mini']
+    train_mean = statistics_data['stdn_mean']
+    train_std = statistics_data['stdn_std']
+    return train_diff_mean, train_diff_std, train_min, train_mean, train_std
 
 from fvcore.nn import FlopCountAnalysis
 

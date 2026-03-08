@@ -52,8 +52,8 @@ def main():
     parser.add_argument('--CNN_embed_dim', type=int, default=8, help='CNN trend model embedding dimension')
 
     # DozerAttention parameters
-    parser.add_argument('--local_window', type=int, default=3, help='The size of local window')
-    parser.add_argument('--stride', type=int, default=7, help='The stride interval sparse attention. If set to 24, interval will be 24.')
+    parser.add_argument('--local_window', type=int, default=2, help='The size of local window')
+    parser.add_argument('--stride', type=int, default=4, help='The stride interval sparse attention. If set to 24, interval will be 24.')
     parser.add_argument('--rand_rate', type=int, default=0.1, help='The rate of random attention')
     parser.add_argument('--vary_len', type=int, default=1, help='The start varying length, if 1 input equals output')
 
@@ -62,7 +62,7 @@ def main():
     parser.add_argument('--Fedformer_version', type=str, default='None', help='Fouriers, Wavelets')
 
     # Training parameters
-    parser.add_argument('--batch_size', type=int, default=32, help='batch size of train input data')
+    parser.add_argument('--batch_size', type=int, default=48, help='batch size of train input data')
     parser.add_argument('--seed', type=int, default=2023, help='Random Seed')
     parser.add_argument('--dropout', type=float, default=0.2, help='dropout')
     parser.add_argument('--loss', type=str, default='L1', help='dropout')
@@ -87,7 +87,7 @@ def main():
                         help='time features encoding, options:[timeF, fixed, learned]')
     parser.add_argument('--target', type=str, default='OT', help='target feature in S or MS task')
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
-    parser.add_argument('--npy_mode', type=str, default='std', choices=['all', 'ori', 'std'],
+    parser.add_argument('--norm_type', type=str, default='std', choices=['all', 'ori', 'std'],
                         help='channel selection mode for MTS_npy dataset')
     parser.add_argument('--merge_to_series', type=str2bool, default=False,
                         help='flatten (N,T,C)->(N*T,C) and use sliding windows for MTS_npy')
@@ -107,7 +107,7 @@ def main():
     parser.add_argument('--u_size', type=int, default=2, help='u')
     parser.add_argument('--f_version', type=str, default="sk_v2", help='u')
 
-    parser.add_argument('--mask', type=str, default='dozer_v1', help='type of sparse mask')
+    parser.add_argument('--mask', type=str, default='dozer', help='type of sparse mask')
 
     parser.add_argument('--exp_run', type=str, default='ross_S_alt_v2', help='identifier for experiments')
     parser.add_argument('--patch_thres', type=int, default=1, help='type of sparse mask')
@@ -225,21 +225,36 @@ def main():
             torch.cuda.empty_cache()
     else:
         ii = 0
-        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_eb{}_dt{}_{}_{}'.format(args.model_id,
-                                                                                                      args.model,
-                                                                                                      args.data,
-                                                                                                      args.features,
-                                                                                                      args.seq_len,
-                                                                                                      args.label_len,
-                                                                                                      args.pred_len,
-                                                                                                      args.d_model,
-                                                                                                      args.n_heads,
-                                                                                                      args.e_layers,
-                                                                                                      args.d_layers,
-                                                                                                      args.d_ff,
-                                                                                                      args.embed,
-                                                                                                      args.distil,
-                                                                                                      args.des, ii)
+        # setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_eb{}_dt{}_{}_{}'.format(args.model_id,
+        #                                                                                               args.model,
+        #                                                                                               args.data,
+        #                                                                                               args.features,
+        #                                                                                               args.seq_len,
+        #                                                                                               args.label_len,
+        #                                                                                               args.pred_len,
+        #                                                                                               args.d_model,
+        #                                                                                               args.n_heads,
+        #                                                                                               args.e_layers,
+        #                                                                                               args.d_layers,
+        #                                                                                               args.d_ff,
+        #                                                                                               args.embed,
+        #                                                                                               args.distil,
+        #                                                                                               args.des, ii)
+        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_segl{}_dm{}_nh{}_el{}_dl{}_mask_{}'.format(
+            args.mode,
+            args.model,
+            args.data,
+            args.features,
+            args.seq_len,
+            args.label_len,
+            args.pred_len,
+            args.patch_size,
+            args.embed_dim,
+            args.n_heads,
+            args.encoder_depth,
+            args.decoder_depth,
+            args.mask,
+        )
 
         exp = Exp(args)  # set experiments
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))

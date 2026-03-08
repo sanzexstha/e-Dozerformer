@@ -8,6 +8,8 @@ from torch.utils.data import Dataset, DataLoader
 
 from utils.tools import StandardScaler
 from utils.timefeatures import time_features
+from utils.tools import get_statistical
+from utils.scale import StandardNorm
 
 import warnings
 
@@ -110,8 +112,8 @@ class Dataset_MTS_NPY(Dataset):
     """
 
     def __init__(self, root_path, data_path, flag='train', size=None, features='M',
-                 target='OT', timeenc=0, freq='h', cycle=None, npy_mode='std',
-                 merge_to_series=False, scale_statistic=None):
+                 target='OT', timeenc=0, freq='h', cycle=None, norm_type='std',
+                 merge_to_series=False, scale_statistic=None, Scale=None):
         assert flag in ['train', 'val', 'test']
         assert size is not None and len(size) == 3, "size must be [seq_len, label_len, pred_len]"
 
@@ -126,7 +128,7 @@ class Dataset_MTS_NPY(Dataset):
         self.timeenc = timeenc
         self.freq = freq
         self.cycle = cycle
-        self.npy_mode = npy_mode
+        self.norm_type = norm_type
         self.merge_to_series = merge_to_series
         self.scale_statistic = scale_statistic
 
@@ -138,92 +140,62 @@ class Dataset_MTS_NPY(Dataset):
         self.series_y = None
         self.series_label = None
         self.series_cycle = None
+        self.anomaly = None
 
         self.__read_data__()
 
     def __read_data__(self):
+        self.scaler = StandardScaler()
         base_dir = os.path.join(self.root_path, self.data_path)
         x_path = os.path.join(base_dir, f"{self.flag}_x.npy")
         y_path = os.path.join(base_dir, f"{self.flag}_y.npy")
 
-        if not os.path.isfile(x_path):
-            raise FileNotFoundError(f"Missing file: {x_path}")
-        if not os.path.isfile(y_path):
-            raise FileNotFoundError(f"Missing file: {y_path}")
-
         self.data_x = np.load(x_path).astype(np.float32)      # (N, seq_len, Cx)
         self.data_y_full = np.load(y_path).astype(np.float32) # (N, out_len, Cy)
 
-        if self.data_x.ndim != 3 or self.data_y_full.ndim != 3:
-            raise ValueError("NPY shapes must be 3D: x=(N,T,Cx), y=(N,H,Cy)")
-        if self.data_x.shape[1] != self.seq_len:
-            raise ValueError(f"seq_len mismatch: x has {self.data_x.shape[1]}, expected {self.seq_len}")
-        if self.data_y_full.shape[1] < self.pred_len:
-            raise ValueError(f"pred_len mismatch: y has {self.data_y_full.shape[1]}, expected >= {self.pred_len}")
-        if self.npy_mode not in ['all', 'ori', 'std']:
-            raise ValueError("npy_mode must be one of ['all', 'ori', 'std']")
-
-        # y channel 4 = raw ground-truth in original pipeline; fallback to channel 0 for manual labels.
+        # y channel 4 = raw ground-truth in original extreme pipeline; fallback to channel 0 for manual labels.
         y_target_col = 4 if self.data_y_full.shape[2] > 4 else 0
         self.data_y_target = self.data_y_full[:, :, [y_target_col]]
 
+        if self.norm_type == 'std':
+            if self.scale_statistic is None:
+                stat_file = os.path.join(base_dir, "mean_std_mini.pt")
+                if os.path.isfile(stat_file):
+                    _, _, _, train_mean, train_std = get_statistical(base_dir)
+                    self.scale_norm = StandardNorm(mean=train_mean, std=train_std)
+
         # x channel mapping from original get_data: ori->6, std->5, all->all.
-        if self.npy_mode == 'ori':
+        if self.norm_type == 'ori':
             x_col = 6 if self.data_x.shape[2] > 6 else 0
             self.data_x_sel = self.data_x[:, :, [x_col]]
-        elif self.npy_mode == 'std':
+        elif self.norm_type == 'std':
             x_col = 5 if self.data_x.shape[2] > 5 else 0
             self.data_x_sel = self.data_x[:, :, [x_col]]
+            self.data_y_target = self.scale_norm.transform(self.data_y_target)
         else:
             self.data_x_sel = self.data_x
 
-        if self.merge_to_series:
-            self.series_x = self.data_x_sel.reshape(-1, self.data_x_sel.shape[-1])
-            self.series_y = self.data_y_target.reshape(-1, 1)
-            self.series_label = self.series_y.copy()
-            if self.cycle is not None and self.cycle > 0:
-                self.series_cycle = (np.arange(len(self.series_x)) % self.cycle)
-            else:
-                self.series_cycle = np.arange(len(self.series_x))
+        # create anomaly flag from dim 1 (prob_like_outlier)
+        self.anomaly = (self.data_x[:, :, 1:2] > 0.5).astype(np.float32)  # (N, input_len, 1)
 
     def __getitem__(self, index):
-        if self.merge_to_series:
-            s_begin = index
-            s_end = s_begin + self.seq_len
-            r_begin = s_end - self.label_len
-            r_end = r_begin + self.label_len + self.pred_len
-
-            seq_x = self.series_x[s_begin:s_end]
-            seq_y = self.series_y[r_begin:r_end]
-            label_y = self.series_label[s_begin:s_end]
-            seq_x_mark = 6.5
-            seq_y_mark = 5.3
-            cycle_index = torch.tensor(self.series_cycle[s_end - 1])
-            return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y
-
-        seq_x = self.data_x_sel[index]             # (seq_len, Cx_sel)
-        y_target = self.data_y_target[index]       # (out_len, 1)
-
-        # Build decoder-aligned target: [label_len history + pred_len future]
-        history = seq_x[-self.label_len:, :1] if self.label_len > 0 else np.zeros((0, 1), dtype=np.float32)
-        future = y_target[:self.pred_len, :]
-        seq_y = np.concatenate([history, future], axis=0)
-
-        label_y = seq_x[:, :1]
+        seq_x = self.data_x_sel[index]   # (360, 1)
+        seq_y = self.data_y_target[index]   # (72, 1)
+        # dummy values
         seq_x_mark = 6.5
         seq_y_mark = 5.3
-        if self.cycle is not None and self.cycle > 0:
-            cycle_index = torch.tensor(index % self.cycle)
-        else:
-            cycle_index = torch.tensor(index)
+        cycle_index = 6
+        label_y = self.anomaly[index]
+
         return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y
 
     def __len__(self):
-        if self.merge_to_series:
-            return len(self.series_x) - self.seq_len - self.pred_len + 1
         return self.data_x_sel.shape[0]
 
-    def inverse_transform(self, data):
+    def inverse_transform(self, data, norm_type=None, part='test', obj='predict'):
+        if self.norm_type == 'std' and self.scale_norm is not None:
+            use_norm_type = self.norm_type if norm_type is None else norm_type
+            return self.scale_norm.inverse_transform(data, use_norm_type, part, obj)
         return data
 
 
