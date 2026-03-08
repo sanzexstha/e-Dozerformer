@@ -2,18 +2,18 @@ seeds=(2023)
 
 # All mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer_v1)
+masks=(dozer)
 #masks=(dozer_ext_only dozer_ext_0 extreme_mask)
 batch_size=48
-lr=5e-5
+#lr=5e-5
+lr=0.001
 model=dozerformer_Linear
 patch_size=8
 
 # Dozer attention parameters
-local_window=2
-stride=4
+local_window=3
+stride=7
 vary_len=1
-
 
 # 96 192 336 720
 patches_thes=(1)
@@ -36,7 +36,6 @@ do
         --batch_size $batch_size \
         --data Lexington \
         --model $model \
-        --features M \
         --moving_avg '13, 17' \
         --seq_len 360 \
         --label_len 96 \

@@ -23,7 +23,7 @@ def data_provider(args, flag):
     timeenc = 0 if args.embed != 'timeF' else 1
     if flag == 'test':
         shuffle_flag = False
-        drop_last = True
+        drop_last = False
         batch_size = args.batch_size  # bsz=1 for evaluation
         freq = args.freq
     # elif flag == 'pred':
@@ -34,7 +34,7 @@ def data_provider(args, flag):
     #     Data = Dataset_Pred
     else:
         shuffle_flag = True
-        drop_last = True
+        drop_last = False
         batch_size = args.batch_size  # bsz for train and valid
         freq = args.freq
     #     data_set = dataset_loader(
@@ -70,7 +70,7 @@ def data_provider(args, flag):
         )
     elif Data is Dataset_MTS_NPY:
         data_kwargs.update(
-            npy_mode=getattr(args, 'npy_mode', 'std'),
+            norm_type=getattr(args, 'norm_type', 'std'),
             merge_to_series=getattr(args, 'merge_to_series', False),
         )
     data_set = Data(**data_kwargs)

@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from sklearn.metrics import mean_absolute_percentage_error
+
 
 def RSE(pred, true):
     return np.sqrt(np.sum((true-pred)**2)) / np.sqrt(np.sum((true-true.mean())**2))
@@ -68,8 +70,13 @@ def RMSE(v, v_, axis=None):
     '''
     return np.sqrt(np.mean((v_ - v) ** 2, axis)).astype(np.float64)
 
-def MAPE(v, v_, axis=None):
-    return np.mean(np.abs((v_ - v) / (np.abs(v) + 1e-5)), axis)
+# def MAPE(v, v_, axis=None):
+#     return np.mean(np.abs((v_ - v) / (np.abs(v) + 1e-5)), axis)
+
+def MAPE(true, pred):
+    pred = np.squeeze(pred)
+    true = np.squeeze(true)
+    return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
 
 def MAE(v, v_, axis=None):
     '''
