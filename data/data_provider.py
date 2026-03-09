@@ -75,26 +75,11 @@ def data_provider(args, flag):
     )
     if Data is Dataset_DAN_Watershed:
         data_kwargs.update(
-            dataset_name=args.data,
-            start_point=getattr(args, 'start_point', None),
-            train_point=getattr(args, 'train_point', None),
-            test_start=getattr(args, 'test_start', None),
-            test_end=getattr(args, 'test_end', None),
-            train_seed=getattr(args, 'train_seed', None),
-            train_volume=getattr(args, 'train_volume', None),
-            val_seed=getattr(args, 'val_seed', None),
-            val_size=getattr(args, 'val_size', None),
-            test_stride=getattr(args, 'test_stride', 16),
-            watershed=getattr(args, 'watershed', 1),
-            rain_data_path=getattr(args, 'rain_data_path', None),
-            oversampling=getattr(args, 'oversampling', 80),
-            event_focus_level=getattr(args, 'event_focus_level', 18),
-            dan_norm_type=getattr(args, 'dan_norm_type', 'logstd'),
+            dan_norm_type=args.dan_norm_type,
         )
     elif Data is Dataset_MTS_NPY:
         data_kwargs.update(
             norm_type=getattr(args, 'norm_type', 'std'),
-            merge_to_series=getattr(args, 'merge_to_series', False),
         )
     data_set = Data(**data_kwargs)
     print(flag, len(data_set))

@@ -1,3 +1,5 @@
+from sympy import false
+
 from data.data_provider import data_provider
 from exp.exp_basic import Exp_Basic
 from models.my_method import dozerformer_Linear, dozerformer
@@ -22,6 +24,7 @@ class Exp_Main(Exp_Basic):
         super(Exp_Main, self).__init__(args)
         self.args.device = self.device
         self.norm_type = self.args.norm_type
+        self.dan_norm_type = args.dan_norm_type
         if args.load_pretrained_model:
             self._load_pretrain_model()
 
@@ -172,6 +175,18 @@ class Exp_Main(Exp_Basic):
 
         preds = []
         trues = []
+        reservoir_datasets = {
+            'Coyote', 'Lexington', 'Almaden', 'Stevens_Creek', 'Vasona',
+        }
+
+        watershed_datasets = {
+            'Ross_noRain', 'Ross', 'Ross_S_fixed',
+            'Saratoga', 'Saratoga_S_fixed', 'Saratoga_noRain',
+            'SFC', 'SFC_S_fixed', 'SFC_noRain',
+            'UpperPen', 'UpperPen_S_fixed', 'UpperPen_noRain',
+            'MTS_npy'
+        }
+
         folder_path = './results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
@@ -188,12 +203,19 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
-                # Align with M2FMoE evaluation: compute metrics in original scale.
-                outputs = test_data.inverse_transform(outputs, self.norm_type, 'test', 'predict')
-                batch_y = test_data.inverse_transform(batch_y, self.norm_type, 'test', 'real')
+                if self.args.data in reservoir_datasets:
+                    norm_type = self.norm_type
+                elif self.args.data in watershed_datasets:
+                    norm_type = self.dan_norm_type
+                else:
+                    norm_type = self.norm_type  # default fallback
 
-                pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
-                true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
+                # Align with M2FMoE evaluation: compute metrics in original scale.
+                # outputs = test_data.inverse_transform(outputs, norm_type, 'test', 'predict')
+                # batch_y = test_data.inverse_transform(batch_y, norm_type, 'test', 'real')
+
+                pred = outputs
+                true = batch_y
 
                 preds.append(pred)
                 trues.append(true)
@@ -224,15 +246,9 @@ class Exp_Main(Exp_Basic):
         }
         wandb.log(metric_dict) if self.args.wandb == True else None
 
-        reservoir_metric_datasets = {
-            'Coyote', 'Lexington', 'Almaden', 'Stevens_Creek', 'Vasona',
-            'Ross_noRain', 'Ross', 'Ross_S_fixed',
-            'Saratoga', 'Saratoga_S_fixed', 'Saratoga_noRain',
-            'SFC', 'SFC_S_fixed', 'SFC_noRain',
-            'UpperPen', 'UpperPen_S_fixed', 'UpperPen_noRain',
-            'MTS_npy'
-        }
-        show_extended_metrics = self.args.data in reservoir_metric_datasets
+        extreme_metric_datasets = reservoir_datasets | watershed_datasets
+        # show_extended_metrics = self.args.data in extreme_metric_datasets
+        show_extended_metrics = false
 
         if show_extended_metrics:
             metric_line = 'rmse:{}, mape:{:.3f}'.format(rmse, mape)

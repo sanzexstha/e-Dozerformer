@@ -14,7 +14,7 @@ def main():
         return str(v).lower() in ('true', '1', 'yes')
     parser = argparse.ArgumentParser(description='Dozerformer')
     parser.add_argument('--mode', default='finetune', type=str, help='Name of model to train, options: [pretrain, finetune, Transformer]')
-    parser.add_argument('--data', type=str, required=False, default='Lexington',
+    parser.add_argument('--data', type=str, required=False, default='Ross_noRain',
                         help='name of dataset')
     parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--model', type=str, default='dozerformer_Linear',
@@ -25,9 +25,9 @@ def main():
     # Data parameters
     parser.add_argument('--root_path', type=str, default='./data/datasets/', help='root path of the data file')
     parser.add_argument('--data_path', type=str, default='ETTh1_labeled.csv', help='location of the data file')
-    parser.add_argument('--seq_len', type=int, default=360, help='input sequence length for encoder, look back window')
+    parser.add_argument('--seq_len', type=int, default=1440, help='input sequence length for encoder, look back window')
     parser.add_argument('--label_len', type=int, default=96, help='start token length of Informer decoder')
-    parser.add_argument('--pred_len', type=int, default=72, help='prediction sequence length, horizon')
+    parser.add_argument('--pred_len', type=int, default=288, help='prediction sequence length, horizon')
     parser.add_argument('--features', type=str, default='M', choices=['S', 'M'],
                         help='features S is univariate, M is multivariate')
     parser.add_argument('--num_workers', type=int, default=0, help='data loader num workers')
@@ -89,7 +89,7 @@ def main():
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
     parser.add_argument('--norm_type', type=str, default='std', choices=['all', 'ori', 'std'],
                         help='channel selection mode for MTS_npy dataset')
-    parser.add_argument('--dan_norm_type', type=str, default='logstd', choices=['logstd', 'zscore'],
+    parser.add_argument('--dan_norm_type', type=str, default='log-std', choices=['log-std', 'std', 'ori'],
                         help='normalization mode for Dan watershed datasets')
     parser.add_argument('--merge_to_series', type=str2bool, default=False,
                         help='flatten (N,T,C)->(N*T,C) and use sliding windows for MTS_npy')
@@ -104,7 +104,7 @@ def main():
     parser.add_argument('--val_size', type=int, default=120, help='number of sampled val windows')
     parser.add_argument('--test_stride', type=int, default=16, help='test window stride')
     parser.add_argument('--rain_data_path', type=str, default=None, help='rain dataset file for Dan watershed loader')
-    parser.add_argument('--watershed', type=int, default=1, help='1: use rain signal, 0: use GMM outlier indicator')
+    parser.add_argument('--watershed', type=int, default=0, help='1: use rain signal, 0: use GMM outlier indicator')
     parser.add_argument('--oversampling', type=float, default=80, help='Kruskal H threshold for Dan train sampling')
     parser.add_argument('--event_focus_level', type=int, default=18, help='random acceptance percent when H threshold not met')
 
@@ -121,10 +121,10 @@ def main():
     args = parser.parse_args()
 
     watershed_datasets = {
-        'Ross_noRain', 'Ross_S_fixed', 'Ross',
-        'Saratoga_S_fixed', 'Saratoga', 'Saratoga_noRain',
-        'SFC_S_fixed', 'SFC', 'SFC_noRain',
-        'UpperPen_S_fixed', 'UpperPen', 'UpperPen_noRain',
+        'Ross_noRain', 'Ross',
+         'Saratoga',
+        'SFC', 'SFC_noRain',
+         'UpperPen', 'UpperPen_noRain',
     }
     no_rain_datasets = {'Ross_noRain', 'Saratoga_noRain', 'SFC_noRain', 'UpperPen_noRain'}
 
@@ -187,18 +187,14 @@ def main():
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
         'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
-        'Ross_noRain': {'data': 'Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Ross_S_fixed': {'data': 'Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Ross': {'data': 'Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Saratoga_S_fixed': {'data': 'Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Saratoga': {'data': 'Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Saratoga_noRain': {'data': 'Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'SFC_S_fixed': {'data': 'SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'SFC': {'data': 'SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'SFC_noRain': {'data': 'SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'UpperPen_S_fixed': {'data': 'UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'UpperPen': {'data': 'UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'UpperPen_noRain': {'data': 'UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross_noRain': {'data': 'watershed/Ross_noRain', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross': {'data': 'watershed/Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Saratoga': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Saratoga_noRain': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'SFC': {'data': 'watershed/SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'SFC_noRain': {'data': 'watershed/SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'UpperPen': {'data': 'watershed/UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'UpperPen_noRain': {'data': 'watershed/UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Coyote': {'data': 'reservoir/Coyote/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Lexington': {'data': 'reservoir/Lexington/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
     }

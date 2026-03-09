@@ -73,7 +73,7 @@ def RMSE(v, v_, axis=None):
 # def MAPE(v, v_, axis=None):
 #     return np.mean(np.abs((v_ - v) / (np.abs(v) + 1e-5)), axis)
 
-def MAPE(true, pred):
+def MAPE(pred, true):
     pred = np.squeeze(pred)
     true = np.squeeze(true)
     return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
