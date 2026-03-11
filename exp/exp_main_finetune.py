@@ -4,7 +4,7 @@ from data.data_provider import data_provider
 from exp.exp_basic import Exp_Basic
 from models.my_method import dozerformer_Linear, dozerformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual, process_one_batch
-from utils.metrics import metric
+from utils.metrics import metric, MAPE
 from utils.scale import StandardNorm, Scale
 
 import numpy as np
@@ -175,6 +175,10 @@ class Exp_Main(Exp_Basic):
 
         preds = []
         trues = []
+        pred_raws = []
+        true_raws = []
+        pred_norms = []
+        true_norms = []
         reservoir_datasets = {
             'Coyote', 'Lexington', 'Almaden', 'Stevens_Creek', 'Vasona',
         }
@@ -203,12 +207,18 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
-                if self.args.data in reservoir_datasets:
-                    norm_type = self.norm_type
-                elif self.args.data in watershed_datasets:
-                    norm_type = self.dan_norm_type
-                else:
-                    norm_type = self.norm_type  # default fallback
+                # if self.args.data in reservoir_datasets:
+                #     norm_type = self.norm_type
+                #
+                # elif self.args.data in watershed_datasets:
+                #     norm_type = self.dan_norm_type
+                # else:
+                #     norm_type = self.norm_type  # default fallback
+
+                # rmse_raw = np.sqrt(np.mean((outputs - batch_y) ** 2))
+                pred_raw = test_data.inverse_transform(outputs)
+                true_raw = test_data.inverse_transform(batch_y)
+
 
                 # Align with M2FMoE evaluation: compute metrics in original scale.
                 # outputs = test_data.inverse_transform(outputs, norm_type, 'test', 'predict')
@@ -219,6 +229,10 @@ class Exp_Main(Exp_Basic):
 
                 preds.append(pred)
                 trues.append(true)
+
+                pred_raws.append(pred_raw)
+                true_raws.append(true_raw)
+
                 if i % 20 == 0:
                     input = batch_x.detach().cpu().numpy()
                     gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
@@ -227,7 +241,15 @@ class Exp_Main(Exp_Basic):
 
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
+
+        pred_raws = np.concatenate(pred_raws, axis=0)
+        true_raws = np.concatenate(true_raws, axis=0)
+
         print('test shape:', preds.shape, trues.shape)
+
+        rmse_raw = np.sqrt(np.mean((pred_raws - true_raws) ** 2))
+        mape_raw = MAPE(pred_raws, true_raws)
+        print(f"RMSE in original scale = {rmse_raw:.4f}", f"MAPE in original scale = {mape_raw:.4f}")
 
         # result save
         folder_path = './results/' + setting + '/'
@@ -242,16 +264,16 @@ class Exp_Main(Exp_Basic):
             'rmse': rmse,
             'mape': mape,
             'mspe': mspe,
-            'corr': corr
+            'corr': corr,
+            'rmse_raw': rmse_raw,
         }
         wandb.log(metric_dict) if self.args.wandb == True else None
 
         extreme_metric_datasets = reservoir_datasets | watershed_datasets
-        # show_extended_metrics = self.args.data in extreme_metric_datasets
-        show_extended_metrics = false
+        show_extended_metrics = self.args.data in extreme_metric_datasets
 
         if show_extended_metrics:
-            metric_line = 'rmse:{}, mape:{:.3f}'.format(rmse, mape)
+            metric_line = 'rmse:{}, mape:{:.3f}, mse{}, mae:{}'.format(rmse, mape, mse, mae)
         else:
             metric_line = 'mse:{}, mae:{}'.format(mse, mae)
 

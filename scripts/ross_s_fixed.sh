@@ -2,18 +2,19 @@ seeds=(2023)
 
 # All mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer)
+masks=(dozer_ext_0)
 #masks=(dozer_ext_only dozer_ext_0 extreme_mask)
 
-lr=5e-5
-#lr=0.001
+#lr=5e-5
+lr=0.001
 model=dozerformer_Linear
-patch_size=24
-batch_size=32
+patch_size=48
+batch_size=48
 # Dozer attention parameters
-local_window=3
-stride=7
+local_window=2
+stride=4
 vary_len=1
+train=1
 
 
 # 96 192 336 720
@@ -28,7 +29,7 @@ do
       echo "Running Seed: $seed | Mask: $mask | patch_thres | $patch_thres"
       echo "================================================================"
 
-      for pred_len in 720
+      for pred_len in 288
       do
         echo "Prediction Length: $pred_len"
 
@@ -37,9 +38,10 @@ do
         --features 'S' \
         --batch_size $batch_size \
         --data Ross_noRain \
+        --is_training $train \
         --model $model \
         --moving_avg '13, 17' \
-        --seq_len 720 \
+        --seq_len 1440 \
         --label_len 96 \
         --pred_len $pred_len \
         --embed_dim 8 \

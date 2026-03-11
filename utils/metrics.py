@@ -31,8 +31,9 @@ def MSE(pred, true):
 def RMSE(pred, true):
     return np.sqrt(MSE(pred, true))
 
-def MAPE(pred, true):
-    return np.mean(np.abs((pred - true) / true))
+# def MAPE(pred, true):
+#     print("using standard mape")
+#     return np.mean(np.abs((pred - true) / true))
 
 def MSPE(pred, true):
     return np.mean(np.square((pred - true) / true))
@@ -58,6 +59,10 @@ def metric(pred, true):
 #     mape = (np.abs(v_ - v) / np.abs(v) + 1e-5).astype(np.float64)
 #     mape = np.where(mape > 5, 0, mape)
 #     return np.mean(mape, axis)
+def MAPE(pred, true):
+    pred = np.squeeze(pred)
+    true = np.squeeze(true)
+    return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
 
 
 def RMSE(v, v_, axis=None):
@@ -73,10 +78,10 @@ def RMSE(v, v_, axis=None):
 # def MAPE(v, v_, axis=None):
 #     return np.mean(np.abs((v_ - v) / (np.abs(v) + 1e-5)), axis)
 
-def MAPE(pred, true):
-    pred = np.squeeze(pred)
-    true = np.squeeze(true)
-    return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
+# def MAPE(pred, true):
+#     pred = np.squeeze(pred)
+#     true = np.squeeze(true)
+#     return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
 
 def MAE(v, v_, axis=None):
     '''

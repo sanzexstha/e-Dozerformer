@@ -44,6 +44,19 @@ def parse_kv_argfile(file_path):
             args_list.append(value)
     return args_list
 
+def load_config(filepath):
+    args = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            key, value = line.split('=', 1)  # split on first '=' only
+            args.append(f'--{key.strip()}')
+            args.append(value.strip())
+    return args
+
+
 
 def r_log_std_normalization(sensor_data_val):
     data = sensor_data_val

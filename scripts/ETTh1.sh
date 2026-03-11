@@ -2,7 +2,7 @@ seeds=(2023)
 
 # All mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer_v1)
+masks=(dozer)
 #masks=(dozer_ext_only dozer_ext_0 extreme_mask)
 
 

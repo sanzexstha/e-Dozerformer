@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from sklearn.mixture import GaussianMixture
 from datetime import datetime, timedelta
 from tqdm import tqdm
-from utils.ext_utils import (initial_seed, parse_kv_argfile,
+from utils.ext_utils import (initial_seed, parse_kv_argfile, load_config,
                        gen_month_tag, gen_time_feature, cos_date, sin_date, RnnDataset,
                        log_std_normalization, log_std_normalization_with_stats,
                        standard_normalization, standard_normalization_with_stats)
@@ -908,10 +908,8 @@ def data_generation(task_name: str, arg_file_path: str = None):
     parser.add_argument("--event_focus_level", type=int, default=18, help="0-99; probability (pct) of accepting samples below kruskal threshold")
 
     # input and output parameters
-    parser.add_argument("--input_dim", type=int, default=1, help="input dimension")
-    parser.add_argument("--output_dim", type=int, default=1, help="output dimension")
-    parser.add_argument("--input_len", type=int, default=720, help="length of input vector")
-    parser.add_argument("--output_len", type=int, default=720, help="length of output vector")
+    parser.add_argument("--input_len", type=int, default=1440, help="length of input vector")
+    parser.add_argument("--output_len", type=int, default=288, help="length of output vector")
 
     # model parameters
     parser.add_argument("--model", type=str, default="Ross_noRain", help="model label")
@@ -929,13 +927,24 @@ def data_generation(task_name: str, arg_file_path: str = None):
     parser.add_argument("--ngpu", type=int, default=1, help="number of GPUs to use")
     parser.add_argument("--watershed", type=int, default=0, help="watershed index")
 
-    cli_args = []
+    # cli_args = []
+    #
+    # file_args = []
+    # if arg_file_path and os.path.isfile(arg_file_path):
+    #     file_args = parse_kv_argfile(arg_file_path)
+    #
+    # args = parser.parse_args(file_args + cli_args)
 
-    file_args = []
-    if arg_file_path and os.path.isfile(arg_file_path):
-        file_args = parse_kv_argfile(arg_file_path)
-
-    args = parser.parse_args(file_args + cli_args)
+    if arg_file_path:
+        file_args = load_config(arg_file_path)
+        args = parser.parse_args(file_args)
+    else:
+        args, _ = parser.parse_known_args()
+        if args.arg_file:
+            file_args = load_config(args.arg_file)
+            args = parser.parse_args(file_args + sys.argv[1:])
+        else:
+            args = parser.parse_args()
 
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
     args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

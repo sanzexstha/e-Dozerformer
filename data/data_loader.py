@@ -1,4 +1,6 @@
 import os
+from logging import root
+
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -12,6 +14,7 @@ from utils.timefeatures import time_features
 from utils.tools import get_statistical, get_statistical_dan
 from utils.scale import StandardNorm
 from utils.ext_utils import log_std_denorm_dataset
+from utils.misc import fprint
 
 
 import warnings
@@ -107,6 +110,127 @@ class Dataset_MTS(Dataset):
         return self.scaler.inverse_transform(data)
 
 
+import os
+import torch
+import numpy as np
+from torch.utils.data import Dataset, DataLoader
+from sklearn.preprocessing import StandardScaler
+
+
+# =============================================================================
+# NORMALIZATION UTILITIES
+# =============================================================================
+def standard_denormalization(norm_data, mean, std):
+    """Reverse the standard normalization."""
+    norm_data = np.array(norm_data)
+    return norm_data * std + mean
+
+
+def get_statistical(file_path):
+    """Load pre-computed mean and std from a saved .pt file."""
+    stats_path = os.path.join(file_path, "mean_std_mini.pt")
+    try:
+        statistics_data = torch.load(stats_path, map_location='cpu', weights_only=False)
+    except TypeError:
+        statistics_data = torch.load(stats_path, map_location='cpu')
+
+    train_mean = statistics_data['stdn_mean']
+    train_std = statistics_data['stdn_std']
+    return train_mean, train_std
+
+
+class Dataset_Reservoir(Dataset):
+    def __init__(self, root_path, data_path='', flag='train', size=None,
+                 scale_statistic=None, features='M',
+                 scale=True,target='OT', timeenc=0, freq='h', cycle=None):
+        """
+        Args:
+            root_path (str): Base directory
+            data_path (str): Subdirectory under root_path (can be '')
+            flag (str): One of 'train', 'val', 'test'
+            size (list): [seq_len, label_len, pred_len]
+            scale_statistic (dict): Not used (kept for API compatibility).
+        """
+        assert flag in ['train', 'val', 'test'], "flag must be 'train', 'val', or 'test'"
+        assert size is not None and len(size) == 3, "size must be [seq_len, label_len, pred_len]"
+
+        self.seq_len = size[0]
+        self.label_len = size[1]
+        self.pred_len = size[2]
+        self.flag = flag
+        self.root_path = root_path
+        self.data_path = data_path
+
+        # These are set differently depending on flag
+        self.data_x = None       # For test: pre-windowed (N, seq_len, 1)
+        self.data_y = None       # For test: pre-windowed (N, label_len+pred_len, 1)
+        self.data_flat = None    # For train/val: flat array (T, 1)
+        self.prewindowed = False
+
+        self.mean = None
+        self.std = None
+        self.scaler = None
+
+        self.__read_data__()
+
+    def __read_data__(self):
+        base_dir = os.path.join(self.root_path, self.data_path,
+                                f'in{self.seq_len}_out{self.pred_len}')
+
+        # --- Load normalization statistics ---
+        self.mean, self.std = get_statistical(base_dir)
+
+        # --- Reconstruct StandardScaler ---
+        stat = torch.load(os.path.join(base_dir, 'mean_std_mini.pt'),
+                          map_location='cpu', weights_only=False)
+        self.scaler = StandardScaler()
+        self.scaler.mean_ = np.array([stat['scaler_mean']])
+        self.scaler.scale_ = np.array([stat['scaler_scale']])
+        self.scaler.var_ = self.scaler.scale_ ** 2
+        self.scaler.n_features_in_ = 1
+
+        # --- Load data based on flag ---
+        if self.flag == 'test':
+            # Test: pre-windowed .npy (matches MCANN's 1086 test points)
+            self.data_x = np.load(os.path.join(base_dir, 'test_x.npy'))
+            self.data_y = np.load(os.path.join(base_dir, 'test_y.npy'))
+            self.prewindowed = True
+        else:
+            # Train/Val: flat scaled .npy (slice on the fly, like Dataset_MTS)
+            file_map = {'train': 'train_data.npy', 'val': 'val_data.npy'}
+            self.data_flat = np.load(os.path.join(base_dir, file_map[self.flag]))
+            self.prewindowed = False
+
+    def __getitem__(self, index):
+        if self.prewindowed:
+            # Test: instant array lookup
+            seq_x = self.data_x[index]
+            seq_y = self.data_y[index]
+        else:
+            # Train/Val: slice window on the fly (like Dataset_MTS)
+            s_begin = index
+            s_end   = s_begin + self.seq_len
+            r_begin = s_end - self.label_len
+            r_end   = r_begin + self.label_len + self.pred_len
+
+            seq_x = self.data_flat[s_begin:s_end]
+            seq_y = self.data_flat[r_begin:r_end]
+
+        seq_x_mark = 6.5
+        seq_y_mark = 5.3
+        cycle_index = 6
+        label_y = np.zeros((self.seq_len, 1), dtype=np.float32)
+        return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y  # No label for reservoir dataset
+
+    def __len__(self):
+        if self.prewindowed:
+            return self.data_x.shape[0]
+        else:
+            return len(self.data_flat) - self.seq_len - self.pred_len + 1
+
+    def inverse_transform(self, data):
+        """Inverse using self.mean and self.std (nanmean/nanstd based)."""
+        return standard_denormalization(data, self.mean, self.std)
 
 class Dataset_MTS_NPY(Dataset):
     """
@@ -160,7 +284,7 @@ class Dataset_MTS_NPY(Dataset):
         self.data_y_full = np.load(y_path).astype(np.float32) # (N, out_len, Cy)
 
         # y channel 4 = raw ground-truth in original extreme pipeline; fallback to channel 0 for manual labels.
-        y_target_col = 4 if self.data_y_full.shape[2] > 4 else 0
+        y_target_col = 4
         self.data_y_target = self.data_y_full[:, :, [y_target_col]]
 
         if self.norm_type == 'std':
@@ -174,17 +298,24 @@ class Dataset_MTS_NPY(Dataset):
 
         # x channel mapping from original get_data: ori->6, std->5, all->all.
         if self.norm_type == 'ori':
-            x_col = 6 if self.data_x.shape[2] > 6 else 0
+            x_col = 6
             self.data_x_sel = self.data_x[:, :, [x_col]]
         elif self.norm_type == 'std':
-            x_col = 5 if self.data_x.shape[2] > 5 else 0
+            x_col = 5
             self.data_x_sel = self.data_x[:, :, [x_col]]
             self.data_y_target = self.scale_norm.transform(self.data_y_target)
         else:
             self.data_x_sel = self.data_x
 
         # create anomaly flag from dim 1 (prob_like_outlier)
-        self.anomaly = (self.data_x[:, :, 1:2] > 0.5).astype(np.float32)  # (N, input_len, 1)
+        self.anomaly = (self.data_x[:, :, 1:2] > 0.9).astype(np.float32)  # (N, input_len, 1)
+        # Anomaly stats
+        fprint("Anomaly Stats", {
+            "Flag": self.flag,
+            "Number of 1s": int(self.anomaly.sum()),
+            "Total Elements": self.anomaly.size,
+            "Percentage": f"{self.anomaly.mean() * 100:.2f}%"
+        })
 
     def __getitem__(self, index):
         seq_x = self.data_x_sel[index]   # (360, 1)
@@ -255,10 +386,11 @@ class Dataset_DAN_Watershed(Dataset):
 
         # y channel 4 = raw ground-truth in original extreme pipeline; fallback to channel 0 for manual labels.
         # 8 standard normalized GT ← new, 0 log-std normalized GT
+        y_target_col = None
         if self.dan_norm_type == 'std':
-            y_target_col = 8 if self.data_y_full.shape[2] > 8 else 0
+            y_target_col = 4
         elif self.dan_norm_type == 'log-std':
-            y_target_col = 0 if self.data_y_full.shape[2] > 4 else 0
+            y_target_col = 0
 
         self.data_y_target = self.data_y_full[:, :, [y_target_col]]
         print("norm type:", self.dan_norm_type)
@@ -275,10 +407,10 @@ class Dataset_DAN_Watershed(Dataset):
         # x channel mapping from original get_data: ori->6, std->5, all->all, 0-> log-std
         x_col = None
         if self.dan_norm_type == 'ori':
-            x_col = 6 if self.data_x.shape[2] > 6 else 0
+            x_col = 6
         elif self.dan_norm_type == 'std':
-            x_col = 5 if self.data_x.shape[2] > 5 else 0
-            # self.data_y_target = self.scale_norm.transform(self.data_y_target)
+            x_col = 5
+            self.data_y_target = self.scale_norm.transform(self.data_y_target)
         elif self.dan_norm_type == 'log-std':
             x_col = 0
         else:
@@ -289,6 +421,11 @@ class Dataset_DAN_Watershed(Dataset):
 
         # create anomaly flag from dim 1 (prob_like_outlier)
         self.anomaly = (self.data_x[:, :, 1:2] > 0.9).astype(np.float32)  # (N, input_len, 1)
+        print(f"flag: {self.flag}")
+        print(f"Number of 1s: {int(self.anomaly.sum())}")
+        print(f"Total elements: {self.anomaly.size}")
+        print(f"Percentage: {self.anomaly.mean() * 100:.2f}%")
+
 
     def __getitem__(self, index):
         seq_x = self.data_x_sel[index]   # (seq_len, 1)

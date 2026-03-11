@@ -14,7 +14,7 @@ def main():
         return str(v).lower() in ('true', '1', 'yes')
     parser = argparse.ArgumentParser(description='Dozerformer')
     parser.add_argument('--mode', default='finetune', type=str, help='Name of model to train, options: [pretrain, finetune, Transformer]')
-    parser.add_argument('--data', type=str, required=False, default='Ross_noRain',
+    parser.add_argument('--data', type=str, required=False, default='Lexington',
                         help='name of dataset')
     parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--model', type=str, default='dozerformer_Linear',
@@ -25,9 +25,9 @@ def main():
     # Data parameters
     parser.add_argument('--root_path', type=str, default='./data/datasets/', help='root path of the data file')
     parser.add_argument('--data_path', type=str, default='ETTh1_labeled.csv', help='location of the data file')
-    parser.add_argument('--seq_len', type=int, default=1440, help='input sequence length for encoder, look back window')
+    parser.add_argument('--seq_len', type=int, default=360, help='input sequence length for encoder, look back window')
     parser.add_argument('--label_len', type=int, default=96, help='start token length of Informer decoder')
-    parser.add_argument('--pred_len', type=int, default=288, help='prediction sequence length, horizon')
+    parser.add_argument('--pred_len', type=int, default=72, help='prediction sequence length, horizon')
     parser.add_argument('--features', type=str, default='M', choices=['S', 'M'],
                         help='features S is univariate, M is multivariate')
     parser.add_argument('--num_workers', type=int, default=0, help='data loader num workers')
@@ -45,7 +45,7 @@ def main():
     # Those transformers used this in encoder and decoder as the parameter for conv1d, MLP
     parser.add_argument('--d_ff', type=int, default=32, help='dimension of MLP in transformer')
     parser.add_argument('--output_attention', action='store_true', help='whether to output attention in encoder')
-    parser.add_argument('--patch_size', type=int, default=24, help='patch sizes of hierarchical architecture')
+    parser.add_argument('--patch_size', type=int, default=8, help='patch sizes of hierarchical architecture')
     parser.add_argument('--moving_avg', type=str, default='13, 17', help='window size of moving average')
 
     # CNN parameters
@@ -89,7 +89,7 @@ def main():
     parser.add_argument('--cycle', type=int, default=24, help='cycle length')
     parser.add_argument('--norm_type', type=str, default='std', choices=['all', 'ori', 'std'],
                         help='channel selection mode for MTS_npy dataset')
-    parser.add_argument('--dan_norm_type', type=str, default='log-std', choices=['log-std', 'std', 'ori'],
+    parser.add_argument('--dan_norm_type', type=str, default='std', choices=['log-std', 'std', 'ori'],
                         help='normalization mode for Dan watershed datasets')
     parser.add_argument('--merge_to_series', type=str2bool, default=False,
                         help='flatten (N,T,C)->(N*T,C) and use sliding windows for MTS_npy')
@@ -115,7 +115,7 @@ def main():
 
     parser.add_argument('--mask', type=str, default='dozer', help='type of sparse mask')
 
-    parser.add_argument('--exp_run', type=str, default='ross_S_alt_v2', help='identifier for experiments')
+    parser.add_argument('--exp_run', type=str, default='lexington_patch_size', help='identifier for experiments')
     parser.add_argument('--patch_thres', type=int, default=1, help='type of sparse mask')
 
     args = parser.parse_args()
@@ -196,7 +196,7 @@ def main():
         'UpperPen': {'data': 'watershed/UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'UpperPen_noRain': {'data': 'watershed/UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Coyote': {'data': 'reservoir/Coyote/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Lexington': {'data': 'reservoir/Lexington/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Lexington': {'data': 'reservoir/Lexington', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
     }
     if args.data in data_parser.keys():
         data_info = data_parser[args.data]

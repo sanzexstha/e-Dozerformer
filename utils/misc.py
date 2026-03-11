@@ -18,7 +18,6 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from torch._six import inf
 
 
 class SmoothedValue(object):
@@ -339,3 +338,26 @@ def all_reduce_mean(x):
     else:
         return x
 
+
+from rich.console import Console
+from rich.table import Table
+from rich import box
+
+console = Console()
+
+
+def fprint(title: str, data: dict, title_color: str = "cyan", value_color: str = "yellow"):
+    """
+    Pretty print any key-value data as a rich table.
+
+    Usage:
+        fprint("My Stats", {"loss": 0.42, "accuracy": "98.1%", "epoch": 10})
+    """
+    table = Table(title=title, box=box.ROUNDED, style=title_color)
+    table.add_column("Metric", style="bold white")
+    table.add_column("Value", style=f"bold {value_color}", justify="right")
+
+    for key, value in data.items():
+        table.add_row(str(key), str(value))
+
+    console.print(table)

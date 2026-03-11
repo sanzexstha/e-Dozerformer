@@ -2,6 +2,7 @@ from data.data_loader import (
     Dataset_MTS,
     Dataset_MTS_NPY,
     Dataset_DAN_Watershed,
+    Dataset_Reservoir,
     Dataset_ETT_hour,
     Dataset_ETT_minute,
 )
@@ -17,7 +18,7 @@ data_dict = {
     'Weather_labeled': Dataset_MTS,
     'Exchange_labeled': Dataset_MTS,
     'Coyote': Dataset_MTS_NPY,
-    'Lexington': Dataset_MTS_NPY,
+    'Lexington': Dataset_Reservoir,
     'Ross_noRain': Dataset_DAN_Watershed,
     'Ross_S_fixed': Dataset_DAN_Watershed,
     'Saratoga_S_fixed': Dataset_DAN_Watershed,

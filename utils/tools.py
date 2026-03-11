@@ -192,8 +192,8 @@ def get_statistical_dan(file_path):
     except TypeError:
         # for older torch versions that don't support weights_only
         statistics_data = torch.load(stats_path, map_location='cpu')
-    train_mean = statistics_data['mean']
-    train_std = statistics_data['std']
+    train_mean = statistics_data['stdn_mean']
+    train_std = statistics_data['stdn_std']
 
     return train_mean, train_std
 

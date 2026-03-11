@@ -1,6 +1,6 @@
 seeds=(2023)
 
-masks=(dozer_ext_0)
+masks=(dozer)
 batch_size=48
 lr=0.001
 model=dozerformer_Linear
@@ -11,8 +11,8 @@ local_window=3
 stride=7
 vary_len=1
 train=1
-gpu=0
-devices=0
+gpu=1
+devices=1
 #$(seq 1 $patch_size)  # 1..8 for patch 8, 1..16 for patch 16
 for patch_size in "${patch_sizes[@]}"
 do
