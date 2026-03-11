@@ -7,6 +7,22 @@
 - `dozer_ext_0`
 - `dozer_v1`
 
+### Tasks
+- [x] Added data loading support for two groups of datasets into `Data_loader` class:
+  - Watershed:  e.g `Ross_S_fixed`
+    - `seq_len = 1440`, `pred_len = 288`
+  - Reservoir: e.g. `Lexington`
+    - `seq_len= 360`, `pred_len= 72`
+  - Preprocessing of MCAAN and DAN paper-related:
+    - oversampling
+    - normalization (log-std)
+    - GMM clustering for extreme event detection
+    - Two types of experimental setups: MCAAN and DAN paper-related and the original Dozer paper-related setup
+      -  random sampling vs temporal split in Dozerformer
+      - For a fair comparision, we use the same training, val and testing period with the same `seq_len` and `pred_len`
+      - For lexington, the same number of testing samples is used `1086`. Training period: `(235234, 1)` MCANN training shape: `(26000, 360, 1)`
+- [x] Converted the normalized data into the original space for a fair comparison with MCANN and DAN, added into `metrics`
+
 ### Extreme events datasets
 #### Watershred
 
