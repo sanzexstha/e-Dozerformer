@@ -77,7 +77,7 @@ def main():
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
 
-    parser.add_argument('--wandb', type=str2bool, default=True,
+    parser.add_argument('--wandb', type=str2bool, default=False,
                         help='flag for whether use wandb')
     parser.add_argument('--abla_type', type=str, default='False', help='ablation study type')
 
@@ -169,7 +169,7 @@ def main():
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
         'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
-        'Ross_noRain': {'data': 'watershed/Ross_S_fixed_labeled.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross_noRain': {'data': 'watershed/raw/Ross_S_fixed_labeled.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
     }
     if args.data in data_parser.keys():
         data_info = data_parser[args.data]
@@ -221,21 +221,21 @@ def main():
             torch.cuda.empty_cache()
     else:
         ii = 0
-        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_eb{}_dt{}_{}_{}'.format(args.model_id,
-                                                                                                      args.model,
-                                                                                                      args.data,
-                                                                                                      args.features,
-                                                                                                      args.seq_len,
-                                                                                                      args.label_len,
-                                                                                                      args.pred_len,
-                                                                                                      args.d_model,
-                                                                                                      args.n_heads,
-                                                                                                      args.e_layers,
-                                                                                                      args.d_layers,
-                                                                                                      args.d_ff,
-                                                                                                      args.embed,
-                                                                                                      args.distil,
-                                                                                                      args.des, ii)
+        setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_segl{}_dm{}_nh{}_el{}_dl{}_mask_{}'.format(
+                args.mode,
+                args.model,
+                args.data,
+                args.features,
+                args.seq_len,
+                args.label_len,
+                args.pred_len,
+                args.patch_size,
+                args.embed_dim,
+                args.n_heads,
+                args.encoder_depth,
+                args.decoder_depth,
+                args.mask,
+            )
 
         exp = Exp(args)  # set experiments
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))

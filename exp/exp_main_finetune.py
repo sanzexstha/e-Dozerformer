@@ -185,6 +185,9 @@ class Exp_Main(Exp_Basic):
                 pred = outputs  # outputs.detach().cpu().numpy()  # .squeeze()
                 true = batch_y  # batch_y.detach().cpu().numpy()  # .squeeze()
 
+                pred = test_data.inverse_transform(pred)
+                true = test_data.inverse_transform(true)
+
                 preds.append(pred)
                 trues.append(true)
                 if i % 20 == 0:
@@ -214,7 +217,7 @@ class Exp_Main(Exp_Basic):
         }
         wandb.log(metric_dict) if self.args.wandb == True else None
 
-        print('mse:{}, mae:{}'.format(mse, mae))
+        print('mse:{}, mae:{}, rmse:{}'.format(mse, mae, rmse))
         f = open("result.txt", 'a')
         f.write(setting + "  \n")
         f.write('mse:{}, mae:{}'.format(mse, mae))

@@ -5239,3 +5239,15 @@ mse:0.44084614515304565, mae:0.14281295239925385
 finetune_dozerformer_Linear_Ross_noRain_ftM_sl720_ll96_pl192_segl24_dm8_nh4_el2_dl1_mask_dozer_ext_0  
 mse:0.4703870713710785, mae:0.13632628321647644
 
+finetune_dozerformer_Linear_Ross_noRain_ftM_sl720_ll96_pl720_segl24_dm8_nh4_el2_dl1_mask_dozer  
+mse:0.45344892144203186, mae:0.08287227898836136
+
+finetune_dozerformer_Linear_Ross_noRain_ftM_sl720_ll96_pl720_segl24_dm8_nh4_el2_dl1_mask_dozer  
+mse:0.45344892144203186, mae:0.08287227898836136
+
+finetune_dozerformer_Linear_Ross_noRain_ftM_sl720_ll96_pl720_segl24_dm8_nh4_el2_dl1_mask_dozer_ext_0  
+mse:0.45456233620643616, mae:0.0770634189248085
+
+finetune_dozerformer_Linear_Ross_noRain_ftM_sl720_ll96_pl720_segl24_dm8_nh4_el2_dl1_mask_dozer_ext_0  
+mse:272.9762257420706, mae:1.8884868511326967
+

@@ -2,7 +2,7 @@ seeds=(2023)
 
 # All mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer_ext_0 dozer_v1)
+masks=(dozer_ext_0)
 #masks=(dozer_ext_only dozer_ext_0 extreme_mask)
 
 lr=5e-5
@@ -13,10 +13,11 @@ patch_size=24
 local_window=3
 stride=7
 vary_len=1
+train=0
 
 
 # 96 192 336 720
-patches_thes=(2 3 4 5 6 7 8 9 10 11 12)
+patches_thes=(1)
 for patch_thres in "${patches_thes[@]}"
 do
   for mask in "${masks[@]}"
@@ -27,7 +28,7 @@ do
       echo "Running Seed: $seed | Mask: $mask | patch_thres | $patch_thres"
       echo "================================================================"
 
-      for pred_len in 96 192 288 336 720
+      for pred_len in 720
       do
         echo "Prediction Length: $pred_len"
 
@@ -36,6 +37,7 @@ do
         --data Ross_noRain \
         --model $model \
         --features M \
+        --is_training $train \
         --moving_avg '13, 17' \
         --seq_len 720 \
         --label_len 96 \
