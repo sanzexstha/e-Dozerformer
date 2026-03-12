@@ -108,6 +108,10 @@ class DataGenerate:
         np.save(os.path.join(save_dir, "test_y.npy"), test_y)
 
         # normalization stats: log_std + standard + R
+        # mean_std_mini = {'mean': self.mean, 'std': self.std,
+        #                  'stdn_mean': self.stdn_mean, 'stdn_std': self.stdn_std,
+        #                  'R_mean': self.R_mean, 'R_std': self.R_std}
+
         mean_std_mini = {'mean': self.mean, 'std': self.std,
                          'stdn_mean': self.stdn_mean, 'stdn_std': self.stdn_std,
                          'R_mean': self.R_mean, 'R_std': self.R_std}

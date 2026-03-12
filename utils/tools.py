@@ -185,15 +185,20 @@ def get_statistical(file_path):
     return train_diff_mean, train_diff_std, train_min, train_mean, train_std
 
 
-def get_statistical_dan(file_path):
+def get_statistical_dan(file_path, norm_type):
     stats_path = os.path.join(file_path, "mean_std_mini.pt")
     try:
         statistics_data = torch.load(stats_path, map_location='cpu', weights_only=False)
     except TypeError:
         # for older torch versions that don't support weights_only
         statistics_data = torch.load(stats_path, map_location='cpu')
-    train_mean = statistics_data['stdn_mean']
-    train_std = statistics_data['stdn_std']
+
+    if norm_type == 'std':
+        train_mean = statistics_data['stdn_mean']
+        train_std = statistics_data['stdn_std']
+    elif norm_type == 'log-std':
+        train_mean = statistics_data['mean']
+        train_std = statistics_data['std']
 
     return train_mean, train_std
 

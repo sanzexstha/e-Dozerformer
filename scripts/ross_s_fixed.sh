@@ -2,13 +2,13 @@ seeds=(2023)
 
 # All mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer)
+masks=(full_mask)
 #masks=(dozer_ext_only dozer_ext_0 extreme_mask)
 
 #lr=5e-5
 lr=0.001
 model=dozerformer_Linear
-patch_size=4
+patch_size=8
 batch_size=48
 # Dozer attention parameters
 local_window=2
@@ -44,7 +44,7 @@ do
         --seq_len 1440 \
         --label_len 96 \
         --pred_len $pred_len \
-        --embed_dim 21 \
+        --embed_dim 2 \
         --learning_rate $lr \
         --patch_size $patch_size \
         --local_window $local_window \

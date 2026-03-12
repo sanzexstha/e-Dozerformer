@@ -223,8 +223,12 @@ class Exp_Main(Exp_Basic):
                 pred_raw = test_data.inverse_transform(outputs)
                 true_raw = test_data.inverse_transform(batch_y)
 
-                pred_raw = (pred_raw + np.abs(pred_raw)) / 2
-                true_raw = (true_raw + np.abs(true_raw)) / 2
+                pred_raw = np.maximum(pred_raw, 0)
+
+
+
+                # pred_raw = (pred_raw + np.abs(pred_raw)) / 2
+                # true_raw = (true_raw + np.abs(true_raw)) / 2
 
 
 
@@ -238,6 +242,15 @@ class Exp_Main(Exp_Basic):
                 preds.append(pred)
                 trues.append(true)
 
+                # print("Scaler mean:", test_data.scale_norm.mean)
+                # print("Scaler std:", test_data.scale_norm.std)
+
+                if i < 2:
+                # Manual check on one sample
+                    print("outputs[0,0,0]:", outputs[0, 0, 0])
+                    print("Manual inverse:", outputs[0, 0, 0] * test_data.scale_norm.std + test_data.scale_norm.mean)
+                    print("pred_raw[0,0,0]:", pred_raw[0, 0, 0])
+                    print("true_raw[0,0,0]:", true_raw[0, 0, 0])
                 pred_raws.append(pred_raw)
                 true_raws.append(true_raw)
 
@@ -252,6 +265,11 @@ class Exp_Main(Exp_Basic):
 
         pred_raws = np.concatenate(pred_raws, axis=0)
         true_raws = np.concatenate(true_raws, axis=0)
+        # save predictions and true values in original scale for further analysis
+        np.save(folder_path + 'pred_raw_log-std.npy', pred_raws)
+        np.save(folder_path + 'true_raw_log-std.npy', true_raws)
+
+
 
         print('test shape:', preds.shape, trues.shape)
 

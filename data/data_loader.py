@@ -565,7 +565,7 @@ class Dataset_DAN_Watershed(Dataset):
         #     if self.scale_statistic is None:
         stat_file = os.path.join(base_dir, "mean_std_mini.pt")
         if os.path.isfile(stat_file):
-            train_mean, train_std = get_statistical_dan(base_dir)
+            train_mean, train_std = get_statistical_dan(base_dir, self.dan_norm_type)
             self.scale_norm = StandardNorm(mean=train_mean, std=train_std)
             self.mean = train_mean
             self.std = train_std
