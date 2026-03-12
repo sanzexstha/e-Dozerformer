@@ -1,6 +1,6 @@
 ## exp_extreme_dataset
 
-**Date:** 2026-03-11  
+**Date:** 2026-03-11 -  
 **Goal:** To evaluate the performance of different sparse masks in those datasets that are specifically related to extreme event time series forecasting
 
 ### Sparse Mask Compared
@@ -22,11 +22,12 @@
       - For a fair comparision, we use the same training, val and testing period with the same `seq_len` and `pred_len`
       - For lexington, the same number of testing samples is used `1086`. Training period: `(235234, 1)` MCANN training shape: `(26000, 360, 1)`
 - [x] Converted the normalized data into the original space for a fair comparison with MCANN and DAN, added into `metrics`
+- [ ] rmse stuck around 16 in `Ross_noRain`, both for Dozer and informer (with d_model `256 <- 512`, where in paper, informer has around 9 
 
 ### Extreme events datasets
 #### Watershred
 
-| Dataset | Stream Sensor        | Rain Sensor          |
+| Dataset | Stream Sensor        | Rain Sensor          | 
 |---------|----------------------|----------------------|
 | **Ross** | `Ross_S_fixed.csv`     | `Ross_R_fixed.csv`     |
 | **Saratoga** | `Saratoga_S_fixed.csv` | `Saratoga_R_fixed.csv` |
