@@ -110,11 +110,177 @@ class Dataset_MTS(Dataset):
         return self.scaler.inverse_transform(data)
 
 
-import os
-import torch
-import numpy as np
-from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import StandardScaler
+class Dataset_Ross(Dataset):
+    """
+    Dozerformer-style dataset for Ross_S_fixed.csv (no rain/watershed).
+
+    Matches DAN's (DS.py) preprocessing exactly for a fair comparison:
+      - Same timestamp-based train/val/test splits
+      - Same log + z-score normalization (fit on training data only)
+      - Same hydro-year filter: prediction target must fall in Sep-May (excludes Jun/Jul/Aug)
+      - Same NaN rejection
+      - Same train_volume (30000) randomly sampled from eligible windows
+      - Same train_seed (1010)
+    """
+
+    def __init__(
+        self,
+        root_path,
+        data_path,
+        flag="train",
+        size=None,          # [in_len, label_len, pred_len] — matches Dozerformer interface
+        start_point="1988-01-01 14:30:00",
+        val_point="2020-09-01 00:30:00",    # start of val period (carved from training data)
+        train_point="2021-08-31 23:30:00",  # end of val / end of train+val combined
+        test_start="2021-09-01 00:30:00",
+        test_end="2022-05-31 23:30:00",
+        scale=True,
+        scale_statistic=None,
+        train_volume=30000,
+        train_seed=1010,
+        test_stride=16,
+        features='S', target='OT', timeenc=0, freq='h', cycle=None
+    # mirrors DAN's gen_test_data stride of 16 steps (every 4 hours)
+    ):
+        assert flag in ["train", "val", "test"]
+        self.flag = flag
+        self.in_len    = size[0] if size is not None else 1440
+        self.label_len = size[1] if size is not None else 0
+        self.pred_len  = size[2] if size is not None else 288
+        self.scale = scale
+        self.scale_statistic = scale_statistic
+        self.train_volume = train_volume
+        self.train_seed = train_seed
+        self.test_stride = test_stride
+
+        self.start_point = start_point
+        self.val_point   = val_point
+        self.train_point = train_point
+        self.test_start  = test_start
+        self.test_end    = test_end
+
+        self.root_path = root_path
+        self.data_path = data_path
+        self.__read_data__()
+
+    def __read_data__(self):
+        df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path), sep="\t")
+        df_raw.columns = ["id", "datetime", "value"]
+        df_raw.sort_values("datetime", inplace=True)
+        df_raw.reset_index(drop=True, inplace=True)
+
+        # --- Timestamp-based split boundaries ---
+        start_idx      = df_raw[df_raw["datetime"] == self.start_point].index[0]
+        val_start_idx  = df_raw[df_raw["datetime"] == self.val_point].index[0]
+        train_end_idx  = df_raw[df_raw["datetime"] == self.train_point].index[0]
+        test_start_idx = df_raw[df_raw["datetime"] == self.test_start].index[0]
+        test_end_idx   = df_raw[df_raw["datetime"] == self.test_end].index[0]
+
+        # train : start_point → val_point
+        # val   : val_point - in_len → train_point  (in_len context + val period)
+        # test  : test_start - in_len → test_end
+        border1s = [
+            start_idx,
+            val_start_idx  - self.in_len,
+            test_start_idx - self.in_len,
+        ]
+        border2s = [
+            val_start_idx,
+            train_end_idx,
+            test_end_idx,
+        ]
+
+        flag_map = {"train": 0, "val": 1, "test": 2}
+        idx = flag_map[self.flag]
+        b1, b2 = border1s[idx], border2s[idx]
+
+        raw_values = df_raw["value"].values.astype(np.float32)
+
+        # --- Log + z-score normalization (mirrors DS.py log_std_normalization) ---
+        if self.scale:
+            train_raw = raw_values[border1s[0]: border2s[0]]
+            if self.scale_statistic is None:
+                log_train = np.log(train_raw + 1)
+                self.mean = float(np.nanmean(log_train))
+                self.std  = float(np.nanstd(log_train))
+            else:
+                self.mean = self.scale_statistic["mean"]
+                self.std  = self.scale_statistic["std"]
+            data = (np.log(raw_values + 1) - self.mean) / self.std
+        else:
+            data = raw_values
+            self.mean, self.std = 0.0, 1.0
+
+        self.data_x    = data[b1:b2].astype(np.float32)
+        self.data_y    = data[b1:b2].astype(np.float32)
+        self.data_time = df_raw["datetime"].values[b1:b2]
+
+        # --- Build eligible indices ---
+        all_valid = []
+        total = len(self.data_x) - self.in_len - self.pred_len + 1
+        for i in range(total):
+            window = self.data_x[i: i + self.in_len + self.pred_len]
+
+            # 1. Reject NaN windows (mirrors DS.py NaN check)
+            if np.isnan(window).any():
+                continue
+
+            # 2. Hydro-year filter: prediction target month must be Sep-May
+            #    (mirrors DS.py: tag <= -9 or -6 < tag < 0, i.e. exclude Jun/Jul/Aug)
+            #    The prediction start is at index i + in_len
+            pred_datetime = self.data_time[i + self.in_len]
+            month = int(pred_datetime[5:7])
+            if month in (6, 7, 8):
+                continue
+
+            all_valid.append(i)
+
+        # 3. For training, subsample to train_volume (mirrors DS.py train_volume=30000)
+        if self.flag == "train" and self.train_volume is not None:
+            rng = np.random.default_rng(self.train_seed)
+            size = min(self.train_volume, len(all_valid))
+            self.indices = rng.choice(all_valid, size=size, replace=False).tolist()
+        elif self.flag == "test":
+            # Mirrors DAN's gen_test_data exactly:
+            #   begin_num = test_start offset; data_x starts in_len before test_start
+            #   so s_begin = i * stride, num_windows = int((len-in_len-pred_len) / stride)
+            #   NaN check covers the full window [s_begin : s_begin + in_len + pred_len]
+            #   No hydro-year filter (DAN doesn't apply it to test)
+            num_windows = int((len(self.data_x) - self.in_len - self.pred_len) / self.test_stride)
+            self.indices = []
+            for i in range(num_windows):
+                s_begin = i * self.test_stride
+                if not np.isnan(self.data_x[s_begin: s_begin + self.in_len + self.pred_len]).any():
+                    self.indices.append(s_begin)
+        else:
+            self.indices = all_valid
+
+    def __getitem__(self, index):
+        s_begin = self.indices[index]
+        s_end   = s_begin + self.in_len
+        r_begin = s_end - self.label_len
+        r_end   = r_begin + self.label_len + self.pred_len
+
+        seq_x = self.data_x[s_begin:s_end].reshape(-1, 1)   # (in_len, 1)
+        seq_y = self.data_y[r_begin:r_end].reshape(-1, 1)   # (label_len + pred_len, 1)
+
+        # Dummy time-mark and cycle features — zeros since we use log+z-score only
+        seq_x_mark  = np.zeros((self.in_len, 4),                       dtype=np.float32)
+        seq_y_mark  = np.zeros((self.label_len + self.pred_len, 4),    dtype=np.float32)
+        cycle_index = np.zeros(1,                                       dtype=np.int64)
+        label_y     = self.data_y[s_begin:s_end].reshape(-1, 1)  # (label_len + pred_len, 1) — same as seq_y for now
+
+        return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y
+
+    def __len__(self):
+        return len(self.indices)
+
+    def get_scale_statistic(self):
+        return {"mean": self.mean, "std": self.std}
+
+    def inverse_transform(self, data):
+        """Undo z-score then log — returns original scale values."""
+        return np.exp(np.array(data) * self.std + self.mean) - 1
 
 
 # =============================================================================

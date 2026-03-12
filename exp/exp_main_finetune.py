@@ -54,11 +54,14 @@ class Exp_Main(Exp_Basic):
         criterion = nn.L1Loss(reduction='mean') if self.args.loss == 'L1' else nn.MSELoss(reduction='mean')
         return criterion
 
-    def _compute_loss(self, preds, targets):
-        criterion_1 = nn.L1Loss(reduction='mean')
-        criterion_2 = nn.MSELoss(reduction='mean')
-        loss = criterion_1(preds, targets) + criterion_2(preds, targets)
-        return loss
+
+        return loss_high + loss_low + loss_base
+    #
+    # def _compute_loss(self, preds, targets):
+    #     criterion_1 = nn.L1Loss(reduction='mean')
+    #     criterion_2 = nn.MSELoss(reduction='mean')
+    #     loss = criterion_1(preds, targets) + criterion_2(preds, targets)
+    #     return loss
 
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
@@ -161,6 +164,7 @@ class Exp_Main(Exp_Basic):
                 batch_y = batch_y.detach().cpu()
 
                 loss = criterion(outputs, batch_y)
+
                 total_loss.append(loss.detach().item())
         total_loss = np.average(total_loss)
 
@@ -219,6 +223,10 @@ class Exp_Main(Exp_Basic):
                 pred_raw = test_data.inverse_transform(outputs)
                 true_raw = test_data.inverse_transform(batch_y)
 
+                pred_raw = (pred_raw + np.abs(pred_raw)) / 2
+                true_raw = (true_raw + np.abs(true_raw)) / 2
+
+
 
                 # Align with M2FMoE evaluation: compute metrics in original scale.
                 # outputs = test_data.inverse_transform(outputs, norm_type, 'test', 'predict')
@@ -273,7 +281,7 @@ class Exp_Main(Exp_Basic):
         show_extended_metrics = self.args.data in extreme_metric_datasets
 
         if show_extended_metrics:
-            metric_line = 'rmse:{}, mape:{:.3f}, mse{}, mae:{}'.format(rmse, mape, mse, mae)
+            metric_line = 'rmse_raw:{}, mape_raw:{}, rmse:{}, mape:{:.3f}, mse:{}, mae:{}'.format(rmse_raw, mape_raw, rmse, mape, mse, mae)
         else:
             metric_line = 'mse:{}, mae:{}'.format(mse, mae)
 

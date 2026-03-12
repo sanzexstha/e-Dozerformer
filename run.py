@@ -187,7 +187,7 @@ def main():
         'Traffic': {'data': 'STEE/traffic.csv', 'data_dim': 862, 'split': [0.7, 0.1, 0.2]},
         'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
-        'Ross_noRain': {'data': 'watershed/Ross_noRain', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross_noRain': {'data': 'watershed/raw/Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Ross': {'data': 'watershed/Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Saratoga': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Saratoga_noRain': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
