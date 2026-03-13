@@ -4,8 +4,7 @@ from data.data_provider import data_provider
 from exp.exp_basic import Exp_Basic
 from models.my_method import dozerformer_Linear, dozerformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual, process_one_batch
-from utils.metrics import metric, MAPE
-from utils.scale import StandardNorm, Scale
+from utils.metrics import metric, MAPE, metric_g
 
 import numpy as np
 import torch
@@ -23,8 +22,8 @@ class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
         self.args.device = self.device
-        self.norm_type = self.args.norm_type
-        self.dan_norm_type = args.dan_norm_type
+        # self.norm_type = self.args.norm_type
+        # self.dan_norm_type = args.dan_norm_type
         if args.load_pretrained_model:
             self._load_pretrain_model()
 
@@ -211,30 +210,12 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
-                # if self.args.data in reservoir_datasets:
-                #     norm_type = self.norm_type
-                #
-                # elif self.args.data in watershed_datasets:
-                #     norm_type = self.dan_norm_type
-                # else:
-                #     norm_type = self.norm_type  # default fallback
-
                 # rmse_raw = np.sqrt(np.mean((outputs - batch_y) ** 2))
                 pred_raw = test_data.inverse_transform(outputs)
                 true_raw = test_data.inverse_transform(batch_y)
+                # ← ADD: clip negative predictions (DAN style)
+                pred_raw = np.clip(pred_raw, 0, None)
 
-                pred_raw = np.maximum(pred_raw, 0)
-
-
-
-                # pred_raw = (pred_raw + np.abs(pred_raw)) / 2
-                # true_raw = (true_raw + np.abs(true_raw)) / 2
-
-
-
-                # Align with M2FMoE evaluation: compute metrics in original scale.
-                # outputs = test_data.inverse_transform(outputs, norm_type, 'test', 'predict')
-                # batch_y = test_data.inverse_transform(batch_y, norm_type, 'test', 'real')
 
                 pred = outputs
                 true = batch_y
@@ -245,12 +226,6 @@ class Exp_Main(Exp_Basic):
                 # print("Scaler mean:", test_data.scale_norm.mean)
                 # print("Scaler std:", test_data.scale_norm.std)
 
-                if i < 2:
-                # Manual check on one sample
-                    print("outputs[0,0,0]:", outputs[0, 0, 0])
-                    print("Manual inverse:", outputs[0, 0, 0] * test_data.scale_norm.std + test_data.scale_norm.mean)
-                    print("pred_raw[0,0,0]:", pred_raw[0, 0, 0])
-                    print("true_raw[0,0,0]:", true_raw[0, 0, 0])
                 pred_raws.append(pred_raw)
                 true_raws.append(true_raw)
 
@@ -265,17 +240,8 @@ class Exp_Main(Exp_Basic):
 
         pred_raws = np.concatenate(pred_raws, axis=0)
         true_raws = np.concatenate(true_raws, axis=0)
-        # save predictions and true values in original scale for further analysis
-        np.save(folder_path + 'pred_raw_log-std.npy', pred_raws)
-        np.save(folder_path + 'true_raw_log-std.npy', true_raws)
-
-
 
         print('test shape:', preds.shape, trues.shape)
-
-        rmse_raw = np.sqrt(np.mean((pred_raws - true_raws) ** 2))
-        mape_raw = MAPE(pred_raws, true_raws)
-        print(f"RMSE in original scale = {rmse_raw:.4f}", f"MAPE in original scale = {mape_raw:.4f}")
 
         # result save
         folder_path = './results/' + setting + '/'
@@ -283,16 +249,29 @@ class Exp_Main(Exp_Basic):
             os.makedirs(folder_path)
 
         mae, mse, rmse, mape, mspe, corr = metric(preds, trues)
+
+        # ── DAN-style metric_g (raw space, per-window RMSE) ──────────
+        # Flatten: (N, 288, 1) → (N*288,)
+        pred_flat = pred_raws.reshape(-1)
+        true_flat = true_raws.reshape(-1)
+
+        # Truncate to nearest 100 windows (DAN compute_metrics style)
+        n_windows = len(pred_flat) // self.args.pred_len
+        n_use = n_windows - n_windows % 100
+        n_values = n_use * self.args.pred_len
+        pred_flat = pred_flat[:n_values]
+        true_flat = true_flat[:n_values]
+
+        rmse_raw, mape_raw = metric_g(pred_flat, true_flat, window_size=self.args.pred_len)
+
         # Wandb
         metric_dict = {
-            'mae': mae,
-            'mse': mse,
-            'rmse': rmse,
-            'mape': mape,
-            'mspe': mspe,
-            'corr': corr,
+            'mae': mae, 'mse': mse, 'rmse': rmse, 'mape': mape,
+            'mspe': mspe, 'corr': corr,
             'rmse_raw': rmse_raw,
+            'mape_raw': mape_raw,
         }
+
         wandb.log(metric_dict) if self.args.wandb == True else None
 
         extreme_metric_datasets = reservoir_datasets | watershed_datasets
