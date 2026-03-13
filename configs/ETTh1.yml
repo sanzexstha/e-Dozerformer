@@ -1,0 +1,16 @@
+seed: 2023
+data: ETTh1_labeled
+model: dozerformer_Linear
+moving_avg: 13, 17
+seq_len: 720
+label_len: 96
+pred_len: 288
+embed_dim: 8
+lr: 5e-5
+patch_size: 24
+local_window: 3
+stride: 7
+vary_len: 1
+mask: dozer
+patch_thres: 1
+wandb: False

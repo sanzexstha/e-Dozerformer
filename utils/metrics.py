@@ -1,7 +1,5 @@
 import numpy as np
 import torch
-from sklearn.metrics import mean_absolute_percentage_error
-
 
 def RSE(pred, true):
     return np.sqrt(np.sum((true-pred)**2)) / np.sqrt(np.sum((true-true.mean())**2))
@@ -31,12 +29,24 @@ def MSE(pred, true):
 def RMSE(pred, true):
     return np.sqrt(MSE(pred, true))
 
-# def MAPE(pred, true):
-#     print("using standard mape")
-#     return np.mean(np.abs((pred - true) / true))
+def MAPE(pred, true):
+    return np.mean(np.abs((pred - true) / true))
 
 def MSPE(pred, true):
     return np.mean(np.square((pred - true) / true))
+
+def metric_g(pred, true, window_size=288):
+    """DAN-style evaluation: per-window RMSE and MAPE then average"""
+    from sklearn.metrics import mean_absolute_percentage_error
+    ll = len(pred) // window_size
+    rmse_all = []
+    mape_all = []
+    for i in range(ll):
+        p = pred[i * window_size : (i + 1) * window_size]
+        g = true[i * window_size : (i + 1) * window_size]
+        rmse_all.append(np.sqrt(np.mean((p - g) ** 2)))
+        mape_all.append(mean_absolute_percentage_error(g + 1, p + 1))
+    return np.around(np.mean(rmse_all), 2), np.around(np.mean(mape_all), 3)
 
 def metric(pred, true):
     mae = MAE(pred, true)
@@ -48,21 +58,17 @@ def metric(pred, true):
     corr = Corr(pred, true)
     return mae,mse,rmse,mape,mspe,corr
 
-# def MAPE(v, v_, axis=None):
-#     '''
-#     Mean absolute percentage error.
-#     :param v: np.ndarray or int, ground truth.
-#     :param v_: np.ndarray or int, prediction.
-#     :param axis: axis to do calculation.
-#     :return: int, MAPE averages on all elements of input.
-#     '''
-#     mape = (np.abs(v_ - v) / np.abs(v) + 1e-5).astype(np.float64)
-#     mape = np.where(mape > 5, 0, mape)
-#     return np.mean(mape, axis)
-def MAPE(pred, true):
-    pred = np.squeeze(pred)
-    true = np.squeeze(true)
-    return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
+def MAPE(v, v_, axis=None):
+    '''
+    Mean absolute percentage error.
+    :param v: np.ndarray or int, ground truth.
+    :param v_: np.ndarray or int, prediction.
+    :param axis: axis to do calculation.
+    :return: int, MAPE averages on all elements of input.
+    '''
+    mape = (np.abs(v_ - v) / np.abs(v) + 1e-5).astype(np.float64)
+    mape = np.where(mape > 5, 0, mape)
+    return np.mean(mape, axis)
 
 
 def RMSE(v, v_, axis=None):
@@ -75,13 +81,6 @@ def RMSE(v, v_, axis=None):
     '''
     return np.sqrt(np.mean((v_ - v) ** 2, axis)).astype(np.float64)
 
-# def MAPE(v, v_, axis=None):
-#     return np.mean(np.abs((v_ - v) / (np.abs(v) + 1e-5)), axis)
-
-# def MAPE(pred, true):
-#     pred = np.squeeze(pred)
-#     true = np.squeeze(true)
-#     return mean_absolute_percentage_error(np.array(true) + 1, np.array(pred) + 1)
 
 def MAE(v, v_, axis=None):
     '''
