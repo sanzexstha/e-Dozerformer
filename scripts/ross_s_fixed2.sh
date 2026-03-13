@@ -2,19 +2,21 @@ seeds=(2023)
 
 # All mask types
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer)
+masks=(dozer_ext_0)
 #masks=(dozer_ext_only dozer_ext_0 extreme_mask)
 
+#lr=5e-5
 lr=5e-5
-#lr=0.001
 model=dozerformer_Linear
-patch_size=(8 12 24 48 60)
+patch_size=(48)
 batch_size=24
 # Dozer attention parameters
 local_window=2
 stride=4
 vary_len=1
 train=1
+gpu=1
+devices=1
 
 
 # 96 192 336 720
@@ -35,6 +37,7 @@ do
 
         python run.py \
         --seed $seed \
+        --features 'S' \
         --batch_size $batch_size \
         --data Ross \
         --is_training $train \
@@ -50,7 +53,9 @@ do
         --stride $stride \
         --vary_len $vary_len \
         --mask $mask \
-        --patch_thres $patch_thres
+        --patch_thres $patch_thres \
+        --gpu $gpu \
+        --devices $devices
       done
     done
   done

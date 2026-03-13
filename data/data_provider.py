@@ -21,7 +21,7 @@ data_dict = {
     'Coyote': Dataset_MTS_NPY,
     'Lexington': Dataset_Reservoir,
     'Ross_noRain': Dataset_DAN_Watershed,
-    'Ross_S_fixed': Dataset_DAN_Watershed,
+    'Ross': Dataset_DAN_Watershed,
     'Saratoga_S_fixed': Dataset_DAN_Watershed,
     'SFC_S_fixed': Dataset_DAN_Watershed,
     'UpperPen_S_fixed': Dataset_DAN_Watershed,

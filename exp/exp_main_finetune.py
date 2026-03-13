@@ -4,7 +4,7 @@ from data.data_provider import data_provider
 from exp.exp_basic import Exp_Basic
 from models.my_method import dozerformer_Linear, dozerformer
 from utils.tools import EarlyStopping, adjust_learning_rate, visual, process_one_batch
-from utils.metrics import metric, MAPE, metric_g
+from utils.metrics import metric, MAPE, metric_g, truncate_to_dan
 
 import numpy as np
 import torch
@@ -210,6 +210,8 @@ class Exp_Main(Exp_Basic):
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
+
+
                 # rmse_raw = np.sqrt(np.mean((outputs - batch_y) ** 2))
                 pred_raw = test_data.inverse_transform(outputs)
                 true_raw = test_data.inverse_transform(batch_y)
@@ -222,9 +224,6 @@ class Exp_Main(Exp_Basic):
 
                 preds.append(pred)
                 trues.append(true)
-
-                # print("Scaler mean:", test_data.scale_norm.mean)
-                # print("Scaler std:", test_data.scale_norm.std)
 
                 pred_raws.append(pred_raw)
                 true_raws.append(true_raw)
@@ -250,37 +249,36 @@ class Exp_Main(Exp_Basic):
 
         mae, mse, rmse, mape, mspe, corr = metric(preds, trues)
 
-        # ── DAN-style metric_g (raw space, per-window RMSE) ──────────
-        # Flatten: (N, 288, 1) → (N*288,)
-        pred_flat = pred_raws.reshape(-1)
-        true_flat = true_raws.reshape(-1)
-
-        # Truncate to nearest 100 windows (DAN compute_metrics style)
-        n_windows = len(pred_flat) // self.args.pred_len
-        n_use = n_windows - n_windows % 100
-        n_values = n_use * self.args.pred_len
-        pred_flat = pred_flat[:n_values]
-        true_flat = true_flat[:n_values]
-
-        rmse_raw, mape_raw = metric_g(pred_flat, true_flat, window_size=self.args.pred_len)
-
         # Wandb
         metric_dict = {
             'mae': mae, 'mse': mse, 'rmse': rmse, 'mape': mape,
             'mspe': mspe, 'corr': corr,
-            'rmse_raw': rmse_raw,
-            'mape_raw': mape_raw,
         }
-
-        wandb.log(metric_dict) if self.args.wandb == True else None
 
         extreme_metric_datasets = reservoir_datasets | watershed_datasets
         show_extended_metrics = self.args.data in extreme_metric_datasets
 
         if show_extended_metrics:
-            metric_line = 'rmse_raw:{}, mape_raw:{}, rmse:{}, mape:{:.3f}, mse:{}, mae:{}'.format(rmse_raw, mape_raw, rmse, mape, mse, mae)
+            from utils.metrics_dan import compute_metrics_dan
+
+            dan_metrics = compute_metrics_dan(pred_raws, true_raws, window_size=self.args.pred_len)
+            rmse_raw = dan_metrics['rmse']
+            mape_raw = dan_metrics['mape']
+            # rmse_norm = dan_metrics['rmse_norm']
+            # mape_norm = dan_metrics['mape_norm']
+
+            print(f"rmse_raw: {rmse_raw}, mape_raw: {mape_raw}")
+
+            metric_dict = {
+                'rmse_raw': rmse_raw,
+                'mape_raw': mape_raw,
+            }
+
+            metric_line = 'rmse_raw:{}, mape_raw:{}'.format(rmse_raw, mape_raw)
         else:
             metric_line = 'mse:{}, mae:{}'.format(mse, mae)
+
+        wandb.log(metric_dict) if self.args.wandb == True else None
 
         print(metric_line)
         f = open("result.txt", 'a')

@@ -508,7 +508,7 @@ class Dataset_MTS_NPY(Dataset):
 class Dataset_DAN_Watershed(Dataset):
     def __init__(self, root_path, data_path, flag='train', size=None, features='M',
                  target='OT', timeenc=0, freq='h', cycle=None, dan_norm_type='std',
-                 merge_to_series=False, scale_statistic=None, Scale=None):
+                 merge_to_series=False, scale_statistic=None, Scale=None, watershed=1):
         assert flag in ['train', 'val', 'test']
         assert size is not None and len(size) == 3, "size must be [seq_len, label_len, pred_len]"
 
@@ -526,6 +526,7 @@ class Dataset_DAN_Watershed(Dataset):
         self.dan_norm_type = dan_norm_type
         self.merge_to_series = merge_to_series
         self.scale_statistic = scale_statistic
+        self.watershed = watershed
 
         self.data_x = None
         self.data_y_full = None
@@ -550,19 +551,39 @@ class Dataset_DAN_Watershed(Dataset):
         self.data_x = np.load(x_path).astype(np.float32)      # (N, seq_len, Cx)
         self.data_y_full = np.load(y_path).astype(np.float32) # (N, out_len, Cy)
 
-        # y channel 4 = raw ground-truth in original extreme pipeline; fallback to channel 0 for manual labels.
-        # 8 standard normalized GT ← new, 0 log-std normalized GT
         y_target_col = None
+        # ---------------- X Columns ---------------- | ---------------- Y Columns ----------------
+        # [0]  log_std_value                          | [0]  log_std_GT
+        # [1]  gm3_outlier_score                      | [1]  cos(date)
+        # [2]  gmm0_post_high_weight                  | [2]  sin(date)
+        # [3]  gmm0_post_low_weight                   | [3]  GT_lag1_or_preGT
+        # [4]  gmm0_post_remaining                    | [4]  raw_GT
+        # [5]  std_norm_value                         | [5]  log_std_GT_dup
+        # [6]  year                                   | [6]  rain_log_std_past_window
+        # [7]  month                                  | [7]  rain_log_std_current_window
+        # [8]  day                                    | [8]  standard_norm_GT
+        # [9]  hour                                   |
+        # [10] minute                                 |
+        # [11] minute                                 |
         if self.dan_norm_type == 'std':
-            y_target_col = 4
+            x_stream_col = 5
+            y_target_col = 8
         elif self.dan_norm_type == 'log-std':
+            x_stream_col = 0
             y_target_col = 0
+        elif self.dan_norm_type == 'ori':
+            x_stream_col = 6
+            y_target_col = 4
 
-        self.data_y_target = self.data_y_full[:, :, [y_target_col]]
-        print("norm type:", self.dan_norm_type)
-        #
-        # if self.dan_norm_type == 'std':
-        #     if self.scale_statistic is None:
+            # encoder input: stream + rain if available
+        if self.watershed >= 1:
+            rain_col = 11  # rain added during data generation
+            print(self.data_x.shape)
+            self.data_x_sel = self.data_x[:, :, [x_stream_col, rain_col]]  # (N, seq_len, 2)
+        else:
+            self.data_x_sel = self.data_x[:, :, [x_stream_col]]  # (N, seq_len, 1)
+
+        self.data_y_target = self.data_y_full[:, :, [y_target_col]]  # (N, out_len, 1)
         stat_file = os.path.join(base_dir, "mean_std_mini.pt")
         if os.path.isfile(stat_file):
             train_mean, train_std = get_statistical_dan(base_dir, self.dan_norm_type)
@@ -570,28 +591,12 @@ class Dataset_DAN_Watershed(Dataset):
             self.mean = train_mean
             self.std = train_std
 
-        # x channel mapping from original get_data: ori->6, std->5, all->all, 0-> log-std
-        x_col = None
-        if self.dan_norm_type == 'ori':
-            x_col = 6
-        elif self.dan_norm_type == 'std':
-            x_col = 5
-            self.data_y_target = self.scale_norm.transform(self.data_y_target)
-        elif self.dan_norm_type == 'log-std':
-            x_col = 0
-        else:
-            self.data_x_sel = self.data_x
-
-        if x_col is not None:
-            self.data_x_sel = self.data_x[:, :, [x_col]]
-
         # create anomaly flag from dim 1 (prob_like_outlier)
         self.anomaly = (self.data_x[:, :, 1:2] > 0.9).astype(np.float32)  # (N, input_len, 1)
-        print(f"flag: {self.flag}")
-        print(f"Number of 1s: {int(self.anomaly.sum())}")
-        print(f"Total elements: {self.anomaly.size}")
-        print(f"Percentage: {self.anomaly.mean() * 100:.2f}%")
-
+        # print(f"flag: {self.flag}")
+        # print(f"Number of 1s: {int(self.anomaly.sum())}")
+        # print(f"Total elements: {self.anomaly.size}")
+        # print(f"Percentage: {self.anomaly.mean() * 100:.2f}%")
 
     def __getitem__(self, index):
         seq_x = self.data_x_sel[index]   # (seq_len, 1)

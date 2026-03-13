@@ -4,19 +4,24 @@ import torch
 from exp.exp_main_finetune import Exp_Main
 import random
 import numpy as np
+import os
+import sys
 import time
+import yaml
 from utils.tools import string_split
 import wandb
+from utils.ext_utils import load_config
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../../')
 
-def main():
+def main(arg_file_path = None):
     def str2bool(v):
         return str(v).lower() in ('true', '1', 'yes')
     parser = argparse.ArgumentParser(description='Dozerformer')
     parser.add_argument('--mode', default='finetune', type=str, help='Name of model to train, options: [pretrain, finetune, Transformer]')
     parser.add_argument('--data', type=str, required=False, default='Ross_noRain',
                         help='name of dataset')
-    parser.add_argument('--is_training', type=int, default=0, help='status')
+    parser.add_argument('--is_training', type=int, default=1, help='status')
     parser.add_argument('--model', type=str, default='dozerformer_Linear',
                         help='model name, options: [tsformer, Informer, Transformer]')
     parser.add_argument('--model_id', type=str, default='test', help='model id')
@@ -55,9 +60,9 @@ def main():
     parser.add_argument('--local_window', type=int, default=2, help='The size of local window')
     parser.add_argument('--stride', type=int, default=4, help='The stride interval sparse attention. If set to 24, interval will be 24.')
     parser.add_argument('--rand_rate', type=int, default=0.1, help='The rate of random attention')
+    # Ablation paprameters
     parser.add_argument('--vary_len', type=int, default=1, help='The start varying length, if 1 input equals output')
 
-    # Ablation paprameters
     parser.add_argument('--factor', type=int, default=1, help='attn factor. Autoformer')
     parser.add_argument('--Fedformer_version', type=str, default='None', help='Fouriers, Wavelets')
 
@@ -76,6 +81,8 @@ def main():
     parser.add_argument('--train_epochs', type=int, default=20, help='train epochs')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
+    parser.add_argument("--arg_file", type=str, default="", help=".txt file. If set, reset the default parameters defined in this file.", )
+
 
     parser.add_argument('--wandb', type=str2bool, default=False,
                         help='flag for whether use wandb')
@@ -104,7 +111,7 @@ def main():
     parser.add_argument('--val_size', type=int, default=120, help='number of sampled val windows')
     parser.add_argument('--test_stride', type=int, default=16, help='test window stride')
     parser.add_argument('--rain_data_path', type=str, default=None, help='rain dataset file for Dan watershed loader')
-    parser.add_argument('--watershed', type=int, default=0, help='1: use rain signal, 0: use GMM outlier indicator')
+    parser.add_argument('--watershed', type=int, default=1, help='1: use rain signal, 0: use GMM outlier indicator')
     parser.add_argument('--oversampling', type=float, default=80, help='Kruskal H threshold for Dan train sampling')
     parser.add_argument('--event_focus_level', type=int, default=18, help='random acceptance percent when H threshold not met')
 
@@ -115,10 +122,18 @@ def main():
 
     parser.add_argument('--mask', type=str, default='dozer', help='type of sparse mask')
 
-    parser.add_argument('--exp_run', type=str, default='lexington_patch_size', help='identifier for experiments')
+    parser.add_argument('--exp_run', type=str, default='ross_withrain_metric_g', help='identifier for experiments')
     parser.add_argument('--patch_thres', type=int, default=1, help='type of sparse mask')
 
     args = parser.parse_args()
+
+    if args.arg_file is not None:
+        with open(args.arg_file, "r") as f:
+            yaml_cfg = yaml.safe_load(f)
+
+        for key, value in yaml_cfg.items():
+            if hasattr(args, key):
+                setattr(args, key, value)
 
     watershed_datasets = {
         'Ross_noRain', 'Ross',
@@ -188,7 +203,7 @@ def main():
         'Exchange': {'data': 'exchange_rate/exchange_rate.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Ross_noRain': {'data': 'watershed/Ross_noRain', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Ross': {'data': 'watershed/Ross_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Ross': {'data': 'watershed/Ross_withRain', 'data_dim': 2, 'split': [0.7, 0.1, 0.2]},
         'Saratoga': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Saratoga_noRain': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'SFC': {'data': 'watershed/SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},

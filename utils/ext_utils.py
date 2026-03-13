@@ -29,7 +29,7 @@ def initial_seed(seed: int = 10):
 def parse_kv_argfile(file_path):
     """将 key|value 格式的参数文件转换为 argparse 可识别的参数列表"""
     args_list = []
-    with open(file_path, 'r') as f:
+    with open(os.path.join(file_path), 'r') as f:
         lines = f.readlines()
 
     for line in lines:

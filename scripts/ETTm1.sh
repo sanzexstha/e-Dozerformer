@@ -1,5 +1,5 @@
 #masks=(dozer dozer_ext_only dozer_ext_0 dozer_ext_null dozer_AND_ext extreme_mask)
-masks=(dozer_v1)
+masks=(dozer_ext_0)
 
 # Random Seeds
 # ~15 minutes

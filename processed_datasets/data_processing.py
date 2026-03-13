@@ -28,7 +28,7 @@ class DataGenerate:
     def __init__(self, data_path, args):
 
         # All data: Train + Validation + Test
-        self.all_input_data = pd.read_csv(args.data_path + args.reservoir_sensor + ".csv", sep="\t")
+        self.all_input_data = pd.read_csv(args.data_path + args.stream_sensor + ".csv", sep="\t")
         self.all_input_data.columns = ["id", "datetime", "value"]
         self.all_input_data.sort_values("datetime", inplace=True)
         self.all_input_data.reset_index(drop=True, inplace=True)
@@ -114,10 +114,11 @@ class DataGenerate:
 
         mean_std_mini = {'mean': self.mean, 'std': self.std,
                          'stdn_mean': self.stdn_mean, 'stdn_std': self.stdn_std,
-                         'R_mean': self.R_mean, 'R_std': self.R_std}
+                         'R_mean': self.R_mean, 'R_std': self.R_std
+                         }
         torch.save(mean_std_mini, os.path.join(save_dir, "mean_std_mini.pt"))
 
-        print('DataGenerate initialized with reservoir sensor:', args.reservoir_sensor)
+        print('DataGenerate initialized with reservoir sensor:', args.stream_sensor)
 
     def read_train_dataset(self, args):
 
@@ -126,7 +127,7 @@ class DataGenerate:
         # read sensor data to vector
         train_start_num = trainX[trainX["datetime"] == args.train_start_point].index.values[
             0]  # start_point: start time of the train set
-        print("for sensor ", args.reservoir_sensor, "train_start_num is: ", train_start_num)
+        print("for sensor ", args.stream_sensor, "train_start_num is: ", train_start_num)
         # foot label of train_end
         train_length = (trainX[trainX["datetime"] == args.train_end_point].index.values[
                             0] - train_start_num)  # train_point: end time of the train set
@@ -279,7 +280,6 @@ class DataGenerate:
 
         sensor_train_data_norm_list = np.concatenate((sensor_train_data_norm_list, time_features), 1)
 
-        self.sensor_train_data_norm_list = sensor_train_data_norm_list
 
         # R_data: DS.py watershed branch─
         if args.watershed >= 1:
@@ -289,16 +289,22 @@ class DataGenerate:
             R_train_length = (R_trainX[R_trainX["datetime"] == args.train_end_point].index.values[0] - R_start_num)
             R_sensor_data = R_trainX[R_start_num: R_train_length + R_start_num]
             self.R_data = np.array(R_sensor_data["value"].fillna(np.nan))
-            self.R_sensor_data_norm = log_std_normalization_with_stats(
-                self.R_data, self.R_mean, self.R_std
-            )
+            self.R_sensor_data_norm, self.R_mean, self.R_std = log_std_normalization(self.R_data)
             self.R_sensor_data_norm1 = [[ff] for ff in self.R_sensor_data_norm]
+
+            # NOW add rain as column 11
+            R_train_norm_list = np.array([[ff] for ff in self.R_sensor_data_norm])
+            sensor_train_data_norm_list = np.concatenate(
+                (sensor_train_data_norm_list, R_train_norm_list), 1
+            )
         else:
             # gm3 outlier probability as auxiliary signal (DS.py else branch)
             self.R_data = gm3_prob_like_outlier
             self.R_sensor_data_norm, self.R_mean, self.R_std = log_std_normalization(self.R_data)
             self.R_sensor_data_norm1 = gm3_prob_like_outlier.squeeze()
             self.R_sensor_data_norm = self.R_sensor_data_norm1  # shape (len(data),)
+
+        self.sensor_train_data_norm_list = sensor_train_data_norm_list
 
         print("sensor_train_data_norm_list, ", sensor_train_data_norm_list)
         print("Finish prob indicator generating.")
@@ -485,7 +491,7 @@ class DataGenerate:
 
         # read sensor data to vector
         start_num = all_train[all_train["datetime"] == args.train_start_point].index.values[0]
-        print("for sensor ", args.reservoir_sensor, "start_num is: ", start_num)
+        print("for sensor ", args.stream_sensor, "start_num is: ", start_num)
         # foot label of train_end
         train_end = (all_train[all_train["datetime"] == args.train_end_point].index.values[0] - start_num)
         print("train set length is : ", train_end)
@@ -597,6 +603,12 @@ class DataGenerate:
             R_sensor_all_data = R_all_trainX[R_start_num:R_k]
             self.R_all_data = np.array(R_sensor_all_data["value"].fillna(np.nan))
             self.R_all_sensor_data_norm = log_std_normalization_with_stats(self.R_all_data, self.R_mean, self.R_std)
+
+            R_all_norm_list = np.array([[ff] for ff in self.R_all_sensor_data_norm])
+            self.sensor_all_data_norm_list = np.concatenate(
+                (self.sensor_all_data_norm_list, R_all_norm_list), 1
+            )
+
         else:
             # recompute gm3 outlier prob on all_data using training gm3
             clean_data = []
@@ -623,6 +635,7 @@ class DataGenerate:
                     recover.append(temp_fill)
             self.R_all_data = np.array(recover, np.float32).reshape(len(self.all_data), 1)
             self.R_all_sensor_data_norm = log_std_normalization_with_stats(self.R_all_data, self.R_mean, self.R_std)
+
 
         self.R_all_sensor_data_norm1 = np.array(self.R_all_sensor_data_norm).squeeze()
         self.R_all_sensor_data_norm = self.R_all_sensor_data_norm1  # shape (len(all_data),)
@@ -851,6 +864,16 @@ class DataGenerate:
 
         x_time_features = np.stack([year, month, day, hour, minute], axis=1)
         x_test = np.concatenate((x_test, x_time_features), 1)
+
+        # add rain as col 11 for val/test
+        if args.watershed >= 1:
+            iloc_point = all_data.index.get_loc(point)
+            R_x = np.array(
+                self.R_all_sensor_data_norm[iloc_point - args.input_len: iloc_point],
+                np.float32
+            ).reshape(args.input_len, -1)
+            x_test = np.concatenate((x_test, R_x), 1)
+
         x_test = np.array([x_test])  # add batch dim: (1, input_len, feature_dim)
 
         # labels
@@ -891,9 +914,9 @@ def data_generation(task_name: str, arg_file_path: str = None):
 
     # dataset and sampling parameters
     parser.add_argument("--data_path", type=str, default="./data/datasets/watershed/raw/", help="path to the dataset")
-    parser.add_argument("--reservoir_sensor", default="Ross_S_fixed", help="reservoir dataset", )
+    parser.add_argument("--stream_sensor", default="Ross_S_fixed", help="stream dataset", )
     parser.add_argument("--name", type=str, default="Ross_noRain", help="name of the experiment")
-    parser.add_argument("--rain_sensor", type=str, default="rain_sensor", help="rain sensor name")
+    parser.add_argument("--rain_sensor", type=str, default="Ross_R_fixed", help="rain sensor name")
 
     parser.add_argument("--train_seed", type=int, default=1010, help="random seed for train sampling")
     parser.add_argument("--test_seed", type=int, default=2000, help="random seed for test sampling")
@@ -922,14 +945,14 @@ def data_generation(task_name: str, arg_file_path: str = None):
     parser.add_argument("--batchsize", type=int, default=48, help="batch size of train data")
     parser.add_argument("--lradj", type=str, default="type4", help="learning rate adjustment policy")
     parser.add_argument("--mode", type=str, default="train", help="set it to train or inference with an existing pt_file", )
-    parser.add_argument("--arg_file", type=str, default="", help=".txt file. If set, reset the default parameters defined in this file.", )
+    parser.add_argument("--arg_file", type=str, required=True, default="", help=".txt file. If set, reset the default parameters defined in this file.", )
     parser.add_argument("--save", type=int, default=0, help="1 if save the predicted file of testset, else 0", )
     parser.add_argument("--outf", default="./data/datasets/watershed/", help="output folder")
     parser.add_argument('--use_gpu', default=True, help='use gpu or not')
 
     parser.add_argument("--gpu_id", type=int, default=1, help="gpu ids: e.g. 0. use -1 for CPU")
     parser.add_argument("--ngpu", type=int, default=1, help="number of GPUs to use")
-    parser.add_argument("--watershed", type=int, default=0, help="watershed index")
+    parser.add_argument("--watershed", type=int, default=1, help="watershed index")
 
     # cli_args = []
     #
