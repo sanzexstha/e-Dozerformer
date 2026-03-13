@@ -24,23 +24,15 @@
 - [x] Converted the normalized data into the original space for a fair comparison with MCANN and DAN, added into `metrics`
 - [ ] rmse stuck around 16 in `Ross_noRain`, both for Dozer and informer (with d_model `256 <- 512`, where in paper, informer has around 9 
 
-### Experimental Setup
+### Debug
 - Full Pipeline DS Style
-  - [x] NaN windows ignore
+  - [x] NaN windows rejected
   - [x] Hydro year in training data
   - [x] log1p + z-score normalization
   - [x] Train/val randomly sampled (30,000 / 120)
   - [x] Test sliding with step=16 (every 4 hours)
   - [x] Normalization params saved in `Norm.txt`
   - [x] `inverse_transform` uses `expm1(x * std + mean)`
-
-### Dataset Splits
- 
-| Split | Sampling Strategy | Shape | Notes |
-|-------|-------------------|-------|-------|
-| **Train** | Random sampling | `(30000, 1440, 1)` | 30,000 windows of 1,440 timesteps (≈ 60 days at 15-min resolution), 1 feature |
-| **Validation** | Random sampling | `(120, 1440, 1)` | 120 windows, same length as training |
-| **Test** | Sliding window, step = 16 | `(1619, 288, 1)` | 1,619 windows of 288 timesteps (≈ 3 days / 72 hours at 15-min resolution) |
 
 ### Extreme events datasets
 #### Watershred
