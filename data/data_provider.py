@@ -19,11 +19,10 @@ data_dict = {
     'Weather_labeled': Dataset_MTS,
     'Exchange_labeled': Dataset_MTS,
     'Coyote': Dataset_MTS_NPY,
-    'Lexington': Dataset_Reservoir,
+    'Lexington': Dataset_MTS_NPY,
     'Ross_noRain': Dataset_DAN_Watershed,
     'Ross': Dataset_DAN_Watershed,
     'Saratoga_S_fixed': Dataset_DAN_Watershed,
-    'SFC_S_fixed': Dataset_DAN_Watershed,
     'UpperPen_S_fixed': Dataset_DAN_Watershed,
     'Saratoga_noRain': Dataset_DAN_Watershed,
     'SFC_noRain': Dataset_DAN_Watershed,
@@ -31,10 +30,8 @@ data_dict = {
     'Ross': Dataset_DAN_Watershed,
     'Saratoga': Dataset_DAN_Watershed,
     'SFC': Dataset_DAN_Watershed,
+    'SFC400': Dataset_DAN_Watershed,
     'UpperPen': Dataset_DAN_Watershed,
-    # 'Solar': Dataset_Solar,
-    # 'PEMS': Dataset_PEMS,
-    # 'custom': Dataset_Custom,
 }
 
 
@@ -78,6 +75,7 @@ def data_provider(args, flag):
     if Data is Dataset_DAN_Watershed:
         data_kwargs.update(
             dan_norm_type=args.dan_norm_type,
+            anorm_thres=args.anorm_thres,
         )
     elif Data is Dataset_MTS_NPY:
         data_kwargs.update(

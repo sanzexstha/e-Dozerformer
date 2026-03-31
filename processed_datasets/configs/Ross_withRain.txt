@@ -1,4 +1,4 @@
-batchsize=24
+batchsize=48
 event_focus_level=18
 gpu_id=0
 input_len=1440

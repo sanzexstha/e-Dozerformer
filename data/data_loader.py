@@ -292,17 +292,17 @@ def standard_denormalization(norm_data, mean, std):
     return norm_data * std + mean
 
 
-def get_statistical(file_path):
-    """Load pre-computed mean and std from a saved .pt file."""
-    stats_path = os.path.join(file_path, "mean_std_mini.pt")
-    try:
-        statistics_data = torch.load(stats_path, map_location='cpu', weights_only=False)
-    except TypeError:
-        statistics_data = torch.load(stats_path, map_location='cpu')
-
-    train_mean = statistics_data['stdn_mean']
-    train_std = statistics_data['stdn_std']
-    return train_mean, train_std
+# def get_statistical(file_path):
+#     """Load pre-computed mean and std from a saved .pt file."""
+#     stats_path = os.path.join(file_path, "mean_std_mini.pt")
+#     try:
+#         statistics_data = torch.load(stats_path, map_location='cpu', weights_only=False)
+#     except TypeError:
+#         statistics_data = torch.load(stats_path, map_location='cpu')
+#
+#     train_mean = statistics_data['stdn_mean']
+#     train_std = statistics_data['stdn_std']
+#     return train_mean, train_std
 
 
 class Dataset_Reservoir(Dataset):
@@ -474,7 +474,7 @@ class Dataset_MTS_NPY(Dataset):
             self.data_x_sel = self.data_x
 
         # create anomaly flag from dim 1 (prob_like_outlier)
-        self.anomaly = (self.data_x[:, :, 1:2] > 0.9).astype(np.float32)  # (N, input_len, 1)
+        self.anomaly = (self.data_x[:, :, 1:2] > 0.55).astype(np.float32)  # (N, input_len, 1)
         # Anomaly stats
         fprint("Anomaly Stats", {
             "Flag": self.flag,
@@ -507,7 +507,7 @@ class Dataset_MTS_NPY(Dataset):
 
 class Dataset_DAN_Watershed(Dataset):
     def __init__(self, root_path, data_path, flag='train', size=None, features='M',
-                 target='OT', timeenc=0, freq='h', cycle=None, dan_norm_type='std',
+                 target='OT', timeenc=0, freq='h', cycle=None, dan_norm_type='std', anorm_thres=0.9,
                  merge_to_series=False, scale_statistic=None, Scale=None, watershed=1):
         assert flag in ['train', 'val', 'test']
         assert size is not None and len(size) == 3, "size must be [seq_len, label_len, pred_len]"
@@ -527,8 +527,11 @@ class Dataset_DAN_Watershed(Dataset):
         self.merge_to_series = merge_to_series
         self.scale_statistic = scale_statistic
         self.watershed = watershed
+        self.anorm_thres = anorm_thres
+        print(self.anorm_thres)
 
         self.data_x = None
+        self.data_x_label = None
         self.data_y_full = None
         self.data_x_sel = None
         self.data_y_target = None
@@ -547,9 +550,12 @@ class Dataset_DAN_Watershed(Dataset):
         base_dir = os.path.join(self.root_path, self.data_path, f'in{self.seq_len}_out{self.pred_len}')
         x_path = os.path.join(base_dir, f"{self.flag}_x.npy")
         y_path = os.path.join(base_dir, f"{self.flag}_y.npy")
+        x_label_path = os.path.join(base_dir, f"{self.flag}_labels.npz")
 
         self.data_x = np.load(x_path).astype(np.float32)      # (N, seq_len, Cx)
         self.data_y_full = np.load(y_path).astype(np.float32) # (N, out_len, Cy)
+        # self.data_x_label =  np.load(x_label_path)['labels'].astype(np.float32)  # (N, seq_len)
+
 
         y_target_col = None
         # ---------------- X Columns ---------------- | ---------------- Y Columns ----------------
@@ -583,6 +589,7 @@ class Dataset_DAN_Watershed(Dataset):
         else:
             self.data_x_sel = self.data_x[:, :, [x_stream_col]]  # (N, seq_len, 1)
 
+
         self.data_y_target = self.data_y_full[:, :, [y_target_col]]  # (N, out_len, 1)
         stat_file = os.path.join(base_dir, "mean_std_mini.pt")
         if os.path.isfile(stat_file):
@@ -591,8 +598,17 @@ class Dataset_DAN_Watershed(Dataset):
             self.mean = train_mean
             self.std = train_std
 
+        # outlier_score = self.data_x[:, :, 1:2]
         # create anomaly flag from dim 1 (prob_like_outlier)
-        self.anomaly = (self.data_x[:, :, 1:2] > 0.9).astype(np.float32)  # (N, input_len, 1)
+        # threshold = np.percentile(self.data_x[:, :, 1:2], self.anorm_thres)
+        # self.anomaly = (outlier_score > threshold).astype(int)
+        # self.anomaly = self.data_x[:, :, 12:13]
+        # scores = self.data_x[:, :, 1:2]
+        # # threshold = np.percentile(scores, self.anorm_thres)  # top 5% are anomalies
+        # self.anomaly = (scores > self.anorm_thres).astype(int)
+        self.anomaly = (self.data_x[:, :, 1:2] > self.anorm_thres).astype(np.float32)
+
+        # print("anomlay shape", self.anomaly.shape)
         # print(f"flag: {self.flag}")
         # print(f"Number of 1s: {int(self.anomaly.sum())}")
         # print(f"Total elements: {self.anomaly.size}")
@@ -605,6 +621,7 @@ class Dataset_DAN_Watershed(Dataset):
         seq_x_mark = 6.5
         seq_y_mark = 5.3
         cycle_index = 6
+        # label_y = self.data_x_label[index]
         label_y = self.anomaly[index]
 
         return seq_x, seq_y, seq_x_mark, seq_y_mark, cycle_index, label_y

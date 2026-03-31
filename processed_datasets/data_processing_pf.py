@@ -3,7 +3,6 @@
 import argparse
 import os
 import sys
-from scipy import stats
 import random
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
@@ -32,9 +31,8 @@ class DataGenerate:
         self.all_input_data.columns = ["id", "datetime", "value"]
         self.all_input_data.sort_values("datetime", inplace=True)
         self.all_input_data.reset_index(drop=True, inplace=True)
-        self.kruskal = args.oversampling
 
-        # Rain / auxiliary sensor data (used when watershed >= 1, mirrors DS.py R_X branch)
+        # Rain / auxiliary sensor data (used when watershed >= 1)
         self.all_R_input_data = None
         if args.watershed >= 1:
             self.all_R_input_data = pd.read_csv(args.data_path + args.rain_sensor + ".csv", sep="\t")
@@ -51,13 +49,23 @@ class DataGenerate:
         # some parameters
         self.data_lens = args.input_len + args.output_len + 1
 
-        # GMM3 — fit on raw data (DS.py approach)
+        # GMM3 — fit on raw data (for feature columns)
         self.gm3 = GaussianMixture(n_components=3)
         self.gm3_train_recover_prob = None
         self.gm3_min_thres, self.gm3_max_thres = None, None
 
         self.gmm0 = GaussianMixture(n_components=3)
         self.gmm0_train_recover_prob, self.gmm0_means = None, None
+
+        # GMM on R_sensor_data_norm (for oversampling threshold z2, DS.py logic)
+        self.gm_R = GaussianMixture(n_components=3)
+        self.z0, self.z1, self.z2 = None, None, None
+
+        # Oversampling parameters (DS.py specific)
+        self.oversampling = int(args.oversampling)
+        self.os_h = args.os_s
+        self.os_l = args.os_s
+        self.iterval = args.os_v
 
         # Train data
         self.sensor_train_data_norm_list, self.sensor_train_data_norm = None, None
@@ -100,18 +108,12 @@ class DataGenerate:
 
         np.save(os.path.join(save_dir, "train_x.npy"), self.x_train)
         np.save(os.path.join(save_dir, "train_y.npy"), self.y_train)
-        # np.save(os.path.join(save_dir, "train_x_normal.npy"), self.x_normal_train)
-        # np.save(os.path.join(save_dir, "train_y_normal.npy"), self.y_normal_train)
         np.save(os.path.join(save_dir, "val_x.npy"), val_x)
         np.save(os.path.join(save_dir, "val_y.npy"), val_y)
         np.save(os.path.join(save_dir, "test_x.npy"), test_x)
         np.save(os.path.join(save_dir, "test_y.npy"), test_y)
 
         # normalization stats: log_std + standard + R
-        # mean_std_mini = {'mean': self.mean, 'std': self.std,
-        #                  'stdn_mean': self.stdn_mean, 'stdn_std': self.stdn_std,
-        #                  'R_mean': self.R_mean, 'R_std': self.R_std}
-
         mean_std_mini = {'mean': self.mean, 'std': self.std,
                          'stdn_mean': self.stdn_mean, 'stdn_std': self.stdn_std,
                          'R_mean': self.R_mean, 'R_std': self.R_std
@@ -142,7 +144,7 @@ class DataGenerate:
         sensor_train_data_norm, mean, std = log_std_normalization(data)
         sensor_train_data_norm_list = [[ff] for ff in sensor_train_data_norm]
 
-        # standard normalization (on top of log_std, as in original data_processing)
+        # standard normalization
         standard_train_data_norm, stdn_mean, stdn_std = standard_normalization(data)
         standard_train_data_norm_list = [[ff] for ff in standard_train_data_norm]
 
@@ -153,7 +155,7 @@ class DataGenerate:
         self.log_std_train_data_norm = sensor_train_data_norm   # alias for label building in get_train_data
         self.standard_train_data_norm = standard_train_data_norm  # for label building in get_train_data
 
-        # GMM gm3: fit on raw data (DS.py approach)
+        # GMM gm3: fit on raw data
         gmm_input = sensor_train_data_norm  # gmm0 still uses log_std normed values
 
         clean_data = []
@@ -180,7 +182,7 @@ class DataGenerate:
         self.gm3_min_thres, self.gm3_max_thres = gm3_thre1, gm3_thre2
 
         print("gm3.means are: ", gm_means)
-        print("gm3 thresholds are: {} {}, and min, median, max are: {} {}, {}".format(gm3_thre1, gm3_thre2, gm3_z0, gm3_z1, gm3_z2))  # 打印阈值
+        print("gm3 thresholds are: {} {}, and min, median, max are: {} {}, {}".format(gm3_thre1, gm3_thre2, gm3_z0, gm3_z1, gm3_z2))
         print("gm3.covariances are: {}, and gm3.weights are: {}".format(self.gm3.covariances_, self.gm3.weights_))
 
         gm3_weights = self.gm3.weights_
@@ -191,10 +193,10 @@ class DataGenerate:
                                     gm3_prob3[:, 1] * gm3_weights[1] +
                                     gm3_prob3[:, 2] * gm3_weights[2])
         gm3_prob_like_outlier = 1 - gm3_prob_in_distribution
-        gm3_prob_like_outlier = gm3_prob_like_outlier.reshape((len(sensor_data_prob), 1))  # shape(训练集长度, 1)
+        gm3_prob_like_outlier = gm3_prob_like_outlier.reshape((len(sensor_data_prob), 1))
 
         recover_data = []
-        temp = [0.5]   # DS.py: fill NaN positions with neutral outlier score
+        temp = [0.5]   # fill NaN positions with neutral outlier score
         jj = 0
         for ii in range(len(data)):
             if (data[ii] is not None) and (np.isnan(data[ii]) != 1):
@@ -204,10 +206,10 @@ class DataGenerate:
                 recover_data.append(temp)
         gm3_prob_like_outlier = np.array(recover_data, np.float32).reshape(len(data), 1)
 
-        self.gm3_train_recover_prob = gm3_prob_like_outlier  # 保存 gm3 的恢复概率
+        self.gm3_train_recover_prob = gm3_prob_like_outlier
 
-
-        sensor_train_data_norm_list = np.concatenate((sensor_train_data_norm_list, gm3_prob_like_outlier),1)  # dim=1, from gm3  # 把“离群分数”拼成新的特征：in dim=1. (1阶差分归一化，离群分数，)
+        # dim 1: gm3 outlier prob
+        sensor_train_data_norm_list = np.concatenate((sensor_train_data_norm_list, gm3_prob_like_outlier), 1)
 
         clean_data = []
         for ii in range(len(gmm_input)):
@@ -230,7 +232,6 @@ class DataGenerate:
         print("gmm0.means are: {}, and gmm0.weights are: {}".format(gmm0_means, self.gmm0.weights_))
         gmm0_weights3 = self.gmm0.weights_
 
-
         data_prob30 = self.gmm0.predict_proba(sensor_data_prob)
 
         order1 = np.argmax(gmm0_weights3)
@@ -243,7 +244,7 @@ class DataGenerate:
         print("new order is, ", order1, order2, order3)
 
         data_prob3 = np.concatenate((d0, d1), 1)
-        data_prob3 = np.concatenate((data_prob3, data_prob30[:, order3].reshape(-1, 1)), 1)  # # data_prob3.shape (训练集长度, 3)，每行是一个样本在 3 个成分上的后验概率
+        data_prob3 = np.concatenate((data_prob3, data_prob30[:, order3].reshape(-1, 1)), 1)
 
         recover_prob = []
         temp = np.zeros(np.array(data_prob3[0]).shape)
@@ -280,10 +281,8 @@ class DataGenerate:
 
         sensor_train_data_norm_list = np.concatenate((sensor_train_data_norm_list, time_features), 1)
 
-
-        # R_data: DS.py watershed branch─
+        # R_data: watershed branch
         if args.watershed >= 1:
-            # external rain / auxiliary sensor data (DS.py opt_hinter_dim >= 1 branch)
             R_trainX = self.all_R_input_data[["datetime", "value"]]
             R_start_num = R_trainX[R_trainX["datetime"] == args.train_start_point].index.values[0]
             R_train_length = (R_trainX[R_trainX["datetime"] == args.train_end_point].index.values[0] - R_start_num)
@@ -298,29 +297,49 @@ class DataGenerate:
                 (sensor_train_data_norm_list, R_train_norm_list), 1
             )
         else:
-            # gm3 outlier probability as auxiliary signal (DS.py else branch)
             self.R_data = gm3_prob_like_outlier
             self.R_sensor_data_norm, self.R_mean, self.R_std = log_std_normalization(self.R_data)
             self.R_sensor_data_norm1 = gm3_prob_like_outlier.squeeze()
-            self.R_sensor_data_norm = self.R_sensor_data_norm1  # shape (len(data),)
+            self.R_sensor_data_norm = self.R_sensor_data_norm1
+
+        # Binary event feature: 1 if raw value > gm3_thre2, else 0
+        event_train = (data > self.gm3_max_thres).astype(np.float32).reshape(-1, 1)
+        sensor_train_data_norm_list = np.concatenate(
+            (sensor_train_data_norm_list, event_train), 1
+        )
 
         self.sensor_train_data_norm_list = sensor_train_data_norm_list
+
+        # GMM on R_sensor_data_norm for oversampling threshold (DS.py z2 logic)
+        R_clean = []
+        for ii in range(len(self.R_sensor_data_norm)):
+            val = self.R_sensor_data_norm[ii]
+            if (val is not None) and (np.isnan(val) != 1):
+                R_clean.append(val)
+        R_prob_input = np.array(R_clean, np.float32).reshape(-1, 1)
+        self.gm_R.fit(R_prob_input)
+        gm_R_means = np.squeeze(self.gm_R.means_)
+        self.z0 = np.min(gm_R_means)
+        self.z1 = np.median(gm_R_means)
+        self.z2 = np.max(gm_R_means)
+        print("gm_R.means are: ", gm_R_means)
+        print("z : ", self.z0, self.z1, self.z2)
 
         print("sensor_train_data_norm_list, ", sensor_train_data_norm_list)
         print("Finish prob indicator generating.")
 
-        tag = gen_month_tag(sensor_data)  #
+        tag = gen_month_tag(sensor_data)
         month, day, hour = gen_time_feature(sensor_data)
 
         self.train_tag = tag
-        self.train_month, self.train_day, self.train_hour = month, day, hour  # 保存月份、日期、小时特征
+        self.train_month, self.train_day, self.train_hour = month, day, hour
 
-        cos_d = cos_date(month, day, hour)  #  cos_d shape: (N_train, )
+        cos_d = cos_date(month, day, hour)
         cos_d = [[x] for x in cos_d]
-        sin_d = sin_date(month, day, hour)  #  sin_d shape: (N_train, )
+        sin_d = sin_date(month, day, hour)
         sin_d = [[x] for x in sin_d]
 
-        self.train_cos_d, self.train_sin_d = cos_d, sin_d  #
+        self.train_cos_d, self.train_sin_d = cos_d, sin_d
 
     def get_val_data_index(self, args):
 
@@ -336,11 +355,11 @@ class DataGenerate:
             i = random.randint(args.output_len, len(self.train_data) - self.data_lens - 1)
 
             if (
-                    (not np.isnan(self.train_data[i: i + self.data_lens]).any())        # DS.py: checks raw data
-                    and (not np.isnan(self.R_data[i: i + self.data_lens]).any())        # DS.py: also checks R_data
+                    (not np.isnan(self.train_data[i: i + self.data_lens]).any())
+                    and (not np.isnan(self.R_data[i: i + self.data_lens]).any())
                     and (
-                        self.train_tag[i + args.input_len] <= -9                        # DS.py threshold
-                        or -6 < self.train_tag[i + args.input_len] < 0                 # DS.py threshold
+                        self.train_tag[i + args.input_len] <= -9
+                        or -6 < self.train_tag[i + args.input_len] < 0
                         or 2 <= self.train_tag[i + args.input_len] <= 3
                     )
             ):
@@ -364,105 +383,116 @@ class DataGenerate:
         pd_temp.to_csv(file_name, sep="\t")
         print("val set saved to : ", file_name)
 
+    def _build_label(self, i, args):
+        """Build the 10-column label for a given sample index i. Shared by both oversampling branches."""
+        b = i + args.input_len
+        e = i + args.input_len + args.output_len
+
+        # dim 0: log_std normed GT
+        label00 = np.array(self.sensor_train_data_norm[b:e])
+        label0 = [[ff] for ff in label00]
+
+        # dim 1: cos date
+        label2 = cos_date(self.train_month[b:e], self.train_day[b:e], self.train_hour[b:e])
+        label2 = [[ff] for ff in label2]
+
+        # dim 2: sin date
+        label3 = sin_date(self.train_month[b:e], self.train_day[b:e], self.train_hour[b:e])
+        label3 = [[ff] for ff in label3]
+
+        # dim 3: raw GT lag-1 (pre-window)
+        label4 = np.array(self.train_data[(b - 1):(e - 1)]).reshape(-1, 1)
+
+        # dim 4: raw GT
+        label5 = np.array(self.train_data[b:e]).reshape(-1, 1)
+
+        # dim 5: log_std normed GT (alias, kept for compatibility)
+        label6 = np.array(self.log_std_train_data_norm[b:e])
+        label6 = [[ff] for ff in label6]
+
+        # dim 6: R past outlier score
+        label7 = np.array(self.R_sensor_data_norm[(b - args.output_len): b])
+        label7 = [[ff] for ff in label7]
+
+        # dim 7: R current outlier score
+        label8 = np.array(self.R_sensor_data_norm[b:e])
+        label8 = [[ff] for ff in label8]
+
+        # dim 8: standard normed GT
+        label9 = np.array(self.standard_train_data_norm[b:e])
+        label9 = [[ff] for ff in label9]
+
+        # dim 9: binary event label (1 if raw value > gm3_thre2, else 0)
+        label10 = (np.array(self.train_data[b:e]) > self.gm3_max_thres).astype(np.float32).reshape(-1, 1)
+
+        label = np.concatenate((label0, label2), 1)
+        label = np.concatenate((label, label3), 1)
+        label = np.concatenate((label, label4), 1)
+        label = np.concatenate((label, label5), 1)
+        label = np.concatenate((label, label6), 1)
+        label = np.concatenate((label, label7), 1)
+        label = np.concatenate((label, label8), 1)
+        label = np.concatenate((label, label9), 1)
+        label = np.concatenate((label, label10), 1)
+
+        return label
 
     def get_train_data(self, args):
+
+        print("Begin to generate train_dataloader!")
         DATA, Label = [], []
-        q = args.output_len // 4  # quarter of output window for kruskal split
+        a3 = 1
 
+        # randomly choose train data
         random.seed(args.train_seed)
+
         ii = 0
-        while ii < args.train_volume:
+        jj = 0
+        while ii < args.train_volume * (
+            1 - self.oversampling / 100
+        ) or jj < args.train_volume * (self.oversampling / 100):
+            i = random.randint(
+                args.output_len,
+                len(self.sensor_train_data_norm) - 31 * args.output_len - 1,
+            )
+            pre1 = np.array(self.train_data[(i + args.input_len):(i + args.input_len + args.output_len)])
+            pre2 = np.array(self.R_sensor_data_norm[(i + args.input_len - int(args.output_len / 2)):(i + args.input_len + int(args.output_len / 2))])
+            a1 = -9
+            a2 = -6
+            if (np.max(pre2) > self.z2):
+                a3 = self.os_h
+                max_index = np.argmax(pre1)
+            a5 = self.iterval
 
-            i = random.randint(args.output_len, len(self.train_data) - 31 * args.output_len - 1)
+            # OVERSAMPLING BRANCH: event-focused sliding window
+            if (jj < args.train_volume * (self.oversampling / 100)) and (np.max(pre2) > self.z2) and (not np.isnan(self.sensor_train_data_norm_list[i:i + self.data_lens]).any()) and (self.train_tag[i + args.input_len] <= a1 or a2 < self.train_tag[i + args.input_len] < 0):
+                if a3 > 0:
+                    i = i + max_index - 1
+                    i = i - int(a3 * a5 / 2)
+                for kk in range(a5):
+                    i = i + a3
+                    if i > len(self.train_data) - 6 * args.output_len - 1 or i < 6 * args.output_len:
+                        continue
+                    if (not np.isnan(self.sensor_train_data_norm_list[i:i + self.data_lens]).any() and self.train_tag[i + args.input_len] != 2 and self.train_tag[i + args.input_len] != 3):
 
-            # DS.py: check both raw data and R_data for NaNs, and tag thresholds
-            if (
-                (not np.isnan(self.train_data[i: i + self.data_lens]).any())
-                and (not np.isnan(self.R_data[i: i + self.data_lens]).any())
-                and (
-                    self.train_tag[i + args.input_len] <= -9
-                    or -6 < self.train_tag[i + args.input_len] < 0
-                )
-            ):
-                data0 = np.array(
-                    self.sensor_train_data_norm_list[i: (i + args.input_len)]
-                ).reshape(args.input_len, -1)
+                        data0 = np.array(self.sensor_train_data_norm_list[i:(i + args.input_len)]).reshape(args.input_len, -1)
+                        label = self._build_label(i, args)
 
-                b = i + args.input_len
-                e = i + args.input_len + args.output_len
-
-                # dim 0: log_std normed GT
-                label00 = np.array(self.sensor_train_data_norm[b:e])
-                label0 = [[ff] for ff in label00]
-
-                # dim 1: cos date
-                label2 = cos_date(self.train_month[b:e], self.train_day[b:e], self.train_hour[b:e])
-                label2 = [[ff] for ff in label2]
-
-                # dim 2: sin date
-                label3 = sin_date(self.train_month[b:e], self.train_day[b:e], self.train_hour[b:e])
-                label3 = [[ff] for ff in label3]
-
-                # dim 3: raw GT lag-1 (pre-window)
-                label4 = np.array(self.train_data[(b - 1):(e - 1)]).reshape(-1, 1)
-
-                # dim 4: raw GT
-                label5 = np.array(self.train_data[b:e]).reshape(-1, 1)
-                label01 = label5.squeeze()  # used for kruskal
-
-                # dim 5: log_std normed GT (alias, kept for compatibility)
-                label6 = np.array(self.log_std_train_data_norm[b:e])
-                label6 = [[ff] for ff in label6]
-
-                # dim 6: R past outlier score
-                label7 = np.array(self.R_sensor_data_norm[(b - args.output_len): b])
-                label7 = [[ff] for ff in label7]
-
-                # dim 7: R current outlier score
-                label8 = np.array(self.R_sensor_data_norm[b:e])
-                label8 = [[ff] for ff in label8]
-
-                # dim 8: standard normed GT
-                label9 = np.array(self.standard_train_data_norm[b:e])
-                label9 = [[ff] for ff in label9]
-
-                label = np.concatenate((label0, label2), 1)
-                label = np.concatenate((label, label3), 1)
-                label = np.concatenate((label, label4), 1)
-                label = np.concatenate((label, label5), 1)
-                label = np.concatenate((label, label6), 1)
-                label = np.concatenate((label, label7), 1)
-                label = np.concatenate((label, label8), 1)
-                label = np.concatenate((label, label9), 1)
-
-                # kruskal H-stat filtering (DS.py logic)
-                if (
-                    (label01[:q] == label01[q:2*q]).all()
-                    and (label01[2*q:3*q] == label01[3*q:]).all()
-                    and (label01[q:2*q] == label01[2*q:3*q]).all()
-                ):
-                    h_stat = 0
-                else:
-                    h_stat, _ = stats.kruskal(
-                        label01[:q], label01[q:2*q], label01[2*q:3*q], label01[3*q:]
-                    )
-
-                self.h_value.append(h_stat)
-
-                if h_stat > self.kruskal:
-                    DATA.append(data0)
-                    Label.append(label)
-                    self.train_tag[i + args.input_len] = 4
-                    ii += 1
-                    self.sampled_h_value.append(h_stat)
-                else:
-                    kk = random.randint(0, 99)
-                    if kk <= args.event_focus_level:
+                        self.train_tag[i + args.input_len] = 4
+                        jj = jj + 1
                         DATA.append(data0)
                         Label.append(label)
-                        self.train_tag[i + args.input_len] = 4
-                        ii += 1
-                        self.sampled_h_value.append(h_stat)
+
+            # NORMAL BRANCH: random sampling
+            elif ii < args.train_volume * (1 - self.oversampling / 100) and (not np.isnan(self.sensor_train_data_norm_list[i:i + self.data_lens]).any()) and (self.train_tag[i + args.input_len] <= a1 or a2 < self.train_tag[i + args.input_len] < 0):
+
+                data0 = np.array(self.sensor_train_data_norm_list[i:(i + args.input_len)]).reshape(args.input_len, -1)
+                label = self._build_label(i, args)
+
+                DATA.append(data0)
+                Label.append(label)
+                self.train_tag[i + args.input_len] = 4
+                ii = ii + 1
 
         print("DATA shape, ", np.array(DATA).shape)
         print("Label shape, ", np.array(Label).shape)
@@ -471,7 +501,7 @@ class DataGenerate:
         self.x_train = np.array(DATA, np.float32)
         self.y_train = np.array(Label, np.float32)
 
-        # No normal/extreme split in DS.py; alias to full set
+        # No normal/extreme split; alias to full set
         self.x_normal_train = self.x_train
         self.y_normal_train = self.y_train
 
@@ -479,8 +509,8 @@ class DataGenerate:
         self.train_data_loader = DataLoader(
             train_data_tensor,
             args.batchsize,
-            shuffle=True,
-            num_workers=0,
+            shuffle=False,
+            num_workers=2,
             pin_memory=True,
             collate_fn=lambda x: x,
         )
@@ -499,16 +529,13 @@ class DataGenerate:
         k = all_train[all_train["datetime"] == args.test_end].index.values[0]
         self.sensor_all_data = all_train[start_num:k]
 
-        # --------------------------------------------------
-        # --------------------------------------------------
         self.all_data = np.array(self.sensor_all_data["value"].fillna(np.nan))
         self.all_data_time = np.array(self.sensor_all_data["datetime"].fillna(np.nan))
 
-        # DS.py preprocessing: log_std normalization with training stats─
+        # log_std normalization with training stats
         self.sensor_all_data_norm = log_std_normalization_with_stats(self.all_data, self.mean, self.std)
         self.sensor_all_data_norm_list = [[ff] for ff in self.sensor_all_data_norm]
 
-        # --------------------------------------------------
         # gm3 was trained on raw data; feed raw all_data for inference
         gmm_input = self.sensor_all_data_norm   # gmm0 still uses log_std values
 
@@ -518,7 +545,7 @@ class DataGenerate:
                 clean_data.append(self.all_data[ii])
         sensor_data_prob = np.array(clean_data, np.float32).reshape(-1, 1)
 
-        data_prob3 = self.gm3.predict_proba(sensor_data_prob)  # (N,3)
+        data_prob3 = self.gm3.predict_proba(sensor_data_prob)
         weights3 = self.gm3.weights_
 
         prob_in_distribution3 = (data_prob3[:, 0] * weights3[0] + data_prob3[:, 1] * weights3[1] + data_prob3[:, 2] * weights3[2])
@@ -527,7 +554,7 @@ class DataGenerate:
         prob_like_outlier3 = prob_like_outlier3.reshape((len(sensor_data_prob), 1))
 
         recover_data = []
-        temp = [0.5]   # DS.py NaN fill
+        temp = [0.5]
         jj = 0
         for ii in range(len(self.all_data)):
             if (self.all_data[ii] is not None) and (np.isnan(self.all_data[ii]) != 1):
@@ -595,7 +622,7 @@ class DataGenerate:
 
         self.sensor_all_data_norm_list = np.concatenate((self.sensor_all_data_norm_list, all_time_features), 1)
 
-        # R_data for val/test: DS.py watershed branch─
+        # R_data for val/test: watershed branch
         if args.watershed >= 1:
             R_all_trainX = self.all_R_input_data[["datetime", "value"]]
             R_start_num = R_all_trainX[R_all_trainX["datetime"] == args.train_start_point].index.values[0]
@@ -610,7 +637,6 @@ class DataGenerate:
             )
 
         else:
-            # recompute gm3 outlier prob on all_data using training gm3
             clean_data = []
             for ii in range(len(self.all_data)):
                 if (self.all_data[ii] is not None) and (np.isnan(self.all_data[ii]) != 1):
@@ -636,29 +662,30 @@ class DataGenerate:
             self.R_all_data = np.array(recover, np.float32).reshape(len(self.all_data), 1)
             self.R_all_sensor_data_norm = log_std_normalization_with_stats(self.R_all_data, self.R_mean, self.R_std)
 
-
         self.R_all_sensor_data_norm1 = np.array(self.R_all_sensor_data_norm).squeeze()
-        self.R_all_sensor_data_norm = self.R_all_sensor_data_norm1  # shape (len(all_data),)
+        self.R_all_sensor_data_norm = self.R_all_sensor_data_norm1
+
+        # Binary event feature: 1 if raw value > gm3_thre2, else 0
+        event_all = (self.all_data > self.gm3_max_thres).astype(np.float32).reshape(-1, 1)
+        self.sensor_all_data_norm_list = np.concatenate(
+            (self.sensor_all_data_norm_list, event_all), 1
+        )
 
         print("Finish prob indicator updating.")
 
-
         self.all_tag = gen_month_tag(self.sensor_all_data)
-        self.all_month, self.all_day, self.all_hour = gen_time_feature(self.sensor_all_data)  # update
+        self.all_month, self.all_day, self.all_hour = gen_time_feature(self.sensor_all_data)
 
         cos_d = cos_date(self.all_month, self.all_day, self.all_hour)
         self.all_cos_d = [[x] for x in cos_d]
         sin_d = sin_date(self.all_month, self.all_day, self.all_hour)
         self.all_sin_d = [[x] for x in sin_d]
 
-        # self.sensor_all_data_norm_list = np.concatenate((self.sensor_all_data_norm_list, cos_d, sin_d), axis=1)
-
     def get_test_data_index(self, args):
         """
-        Get the test data as a DataLoader object.
+        Get the test data index points.
 
         :param args: Arguments containing batch size and other parameters.
-        :return: DataLoader object for test data.
         """
 
         test_points = []
@@ -671,7 +698,7 @@ class DataGenerate:
 
         end_num = (self.all_input_data[self.all_input_data["datetime"] == args.test_end].index.values[0] - start_num)
 
-        iterval = 16  # DS.py: iterate every 16 steps
+        iterval = 16  # iterate every 16 steps
 
         for i in range(int((end_num - begin_num - args.output_len) / iterval)):
             point = self.all_data_time[begin_num + i * iterval]
@@ -685,7 +712,6 @@ class DataGenerate:
                 test_points.append([point])
 
         self.test_data_index = test_points
-        # ------------------------------------------------------------------
         print("Finish getting test data")
 
     def get_batch_data(self, time_point_list, args):
@@ -705,7 +731,7 @@ class DataGenerate:
         if not results:
             return (
                 np.empty((0, args.input_len, 10)),  # x_tests
-                np.empty((0, args.output_len, 5)),  # y_tests
+                np.empty((0, args.output_len, 10)),  # y_tests (now 10 dims)
             )
 
         x_tests = []
@@ -717,8 +743,9 @@ class DataGenerate:
         pre_gts = []
         gts = []
         stdn_gts = []
+        event_labels = []
 
-        for x_test, logstd_norm_y_test, dan_now_y_prob_like_outlier3, dan_pre_y_prob_like_outlier3, norm_gt, ts_f, pre_gt, gt, stdn_norm_y_test in results:
+        for x_test, logstd_norm_y_test, dan_now_y_prob_like_outlier3, dan_pre_y_prob_like_outlier3, norm_gt, ts_f, pre_gt, gt, stdn_norm_y_test, event_label in results:
             x_tests.append(x_test)
             norm_gts.append(np.expand_dims(norm_gt, axis=0))
             ts_features.append(ts_f)
@@ -728,6 +755,7 @@ class DataGenerate:
             dan_now_outliers.append(np.expand_dims(dan_now_y_prob_like_outlier3, axis=0))
             dan_pre_outliers.append(np.expand_dims(dan_pre_y_prob_like_outlier3, axis=0))
             stdn_gts.append(np.expand_dims(stdn_norm_y_test, axis=0))
+            event_labels.append(np.expand_dims(event_label, axis=0))
 
         x_tests_np = np.concatenate(x_tests, axis=0)
         norm_gts_np = np.concatenate(norm_gts, axis=0)
@@ -738,12 +766,14 @@ class DataGenerate:
         dan_now_outliers_np = np.concatenate(dan_now_outliers, axis=0)
         dan_pre_outliers_np = np.concatenate(dan_pre_outliers, axis=0)
         stdn_gts_np = np.concatenate(stdn_gts, axis=0)
+        event_labels_np = np.concatenate(event_labels, axis=0)
 
         # y dim layout: 0=log_std GT, 1-2=cos/sin ts, 3=pre_gt, 4=raw GT,
-        #               5=log_std GT (compat), 6=R_pre, 7=R_now, 8=stdn GT
+        #               5=log_std GT (compat), 6=R_pre, 7=R_now, 8=stdn GT, 9=binary event
         y_tests_np = np.concatenate(
             [norm_gts_np, ts_features_np, pre_gts_np, gts_np,
-             logstd_gts_np, dan_pre_outliers_np, dan_now_outliers_np, stdn_gts_np],
+             logstd_gts_np, dan_pre_outliers_np, dan_now_outliers_np, stdn_gts_np,
+             event_labels_np],
             axis=-1
         )
 
@@ -808,7 +838,7 @@ class DataGenerate:
         test_timestamp_features = np.array(
             [np.stack([test_year, test_month, test_day, test_hour, test_minute], axis=1)])
 
-        # dim 0: log_std normalized input (DS.py primary normalization)
+        # dim 0: log_std normalized input
         x_test = np.array(log_std_normalization_with_stats(reservoir_data, self.mean, self.std), np.float32).reshape(
             args.input_len, -1)
         norm_y_test = np.array(
@@ -851,7 +881,7 @@ class DataGenerate:
                                np.float32).reshape(args.input_len, -1)
         x_test = np.concatenate((x_test, stdn_x_test), 1)
 
-        # stdn and original-data dims removed (DS.py preprocessing has no equivalent)
+        # dims 6-10: time features
         x_timestamp = all_data[point - args.input_len: point]["datetime"].values
         data_time_str = x_timestamp.astype(str)
         data_time_pd = pd.to_datetime(data_time_str)
@@ -873,6 +903,10 @@ class DataGenerate:
                 np.float32
             ).reshape(args.input_len, -1)
             x_test = np.concatenate((x_test, R_x), 1)
+
+        # Binary event feature: 1 if raw value > gm3_thre2, else 0
+        event_x = (np.array(reservoir_data, np.float32) > self.gm3_max_thres).astype(np.float32).reshape(args.input_len, -1)
+        x_test = np.concatenate((x_test, event_x), 1)
 
         x_test = np.array([x_test])  # add batch dim: (1, input_len, feature_dim)
 
@@ -904,7 +938,10 @@ class DataGenerate:
             ), np.float32
         ).reshape(args.output_len, -1)
 
-        return x_test, logstd_norm_y_test, dan_now_y_prob_like_outlier3, dan_pre_y_prob_like_outlier3, norm_y_test, test_ts_features, pre_gt, gt, stdn_norm_y_test
+        # label dim 9: binary event label (1 if raw value > gm3_thre2, else 0)
+        event_label = (gt > self.gm3_max_thres).astype(np.float32).reshape(args.output_len, -1)
+
+        return x_test, logstd_norm_y_test, dan_now_y_prob_like_outlier3, dan_pre_y_prob_like_outlier3, norm_y_test, test_ts_features, pre_gt, gt, stdn_norm_y_test, event_label
 
 
 def data_generation(task_name: str, arg_file_path: str = None):
@@ -931,8 +968,9 @@ def data_generation(task_name: str, arg_file_path: str = None):
     parser.add_argument("--test_start", type=str, default="2021-09-01 00:30:00", help="start time of the test set", )
     parser.add_argument("--test_end", type=str, default="2022-05-31 23:30:00", help="end time of the test set", )
 
-    parser.add_argument("--oversampling", type=int, default=80, help="[unused] kept for config file compat")
-    parser.add_argument("--event_focus_level", type=int, default=18, help="0-99; probability (pct) of accepting samples below kruskal threshold")
+    parser.add_argument("--oversampling", type=int, default=80, help="oversampling percentage for event-focused samples")
+    parser.add_argument("--os_s", type=int, default=1, help="oversampling shift step size")
+    parser.add_argument("--os_v", type=int, default=8, help="oversampling interval (number of shifted samples per event)")
 
     # input and output parameters
     parser.add_argument("--input_len", type=int, default=1440, help="length of input vector")
@@ -954,14 +992,6 @@ def data_generation(task_name: str, arg_file_path: str = None):
     parser.add_argument("--ngpu", type=int, default=1, help="number of GPUs to use")
     parser.add_argument("--watershed", type=int, default=1, help="watershed index")
 
-    # cli_args = []
-    #
-    # file_args = []
-    # if arg_file_path and os.path.isfile(arg_file_path):
-    #     file_args = parse_kv_argfile(arg_file_path)
-    #
-    # args = parser.parse_args(file_args + cli_args)
-
     if arg_file_path:
         file_args = load_config(arg_file_path)
         args = parser.parse_args(file_args)
@@ -981,7 +1011,4 @@ def data_generation(task_name: str, arg_file_path: str = None):
     print(f"Initializing data generation for position:{args.name}!")
 
 if __name__ == '__main__':
-    # initial_seed(2025)
-
-    # config_path = f"../records/mcann_configs/{pos}.txt"
     data_generation('test')

@@ -187,7 +187,7 @@ class Exp_Main(Exp_Basic):
         }
 
         watershed_datasets = {
-            'Ross_noRain', 'Ross', 'Ross_S_fixed',
+            'Ross_noRain', 'Ross', 'Ross_S_fixed', 'SFC400',
             'Saratoga', 'Saratoga_S_fixed', 'Saratoga_noRain',
             'SFC', 'SFC_S_fixed', 'SFC_noRain',
             'UpperPen', 'UpperPen_S_fixed', 'UpperPen_noRain',
@@ -216,8 +216,8 @@ class Exp_Main(Exp_Basic):
                 pred_raw = test_data.inverse_transform(outputs)
                 true_raw = test_data.inverse_transform(batch_y)
                 # ← ADD: clip negative predictions (DAN style)
-                pred_raw = np.clip(pred_raw, 0, None)
-
+                if self.args.data in watershed_datasets:
+                    pred_raw = np.clip(pred_raw, 0, None)
 
                 pred = outputs
                 true = batch_y
@@ -249,7 +249,6 @@ class Exp_Main(Exp_Basic):
 
         mae, mse, rmse, mape, mspe, corr = metric(preds, trues)
 
-        # Wandb
         metric_dict = {
             'mae': mae, 'mse': mse, 'rmse': rmse, 'mape': mape,
             'mspe': mspe, 'corr': corr,
@@ -259,22 +258,22 @@ class Exp_Main(Exp_Basic):
         show_extended_metrics = self.args.data in extreme_metric_datasets
 
         if show_extended_metrics:
-            from utils.metrics_dan import compute_metrics_dan
+            if self.args.data in watershed_datasets:
+                from utils.metrics_dan import compute_metrics_dan
+                from utils.ext_dan import compute_metrics_same
+                dan_metrics = compute_metrics_dan(pred_raws, true_raws, window_size=self.args.pred_len)
+                # dan_metrics = compute_metrics_same(pred_raws.squeeze(-1))
+                metric_dict = dan_metrics
+                # metric_line = 'rmse_3d:{}, mape:{}'.format(np.array(dan_metrics[0][0]), np.array(dan_metrics[1][0]))
+                metric_line = 'For 3d, rmse:{}, mape:{}, For 4h, rmse:{}, mape:{}'.format(dan_metrics['rmse_3d'], dan_metrics['mape_3d'],
+                                                                                          dan_metrics['rmse_4h'], dan_metrics['mape_4h'])
+            elif self.args.data in reservoir_datasets:
+                from utils.metrics_dan import compute_metrics_reservoir
 
-            dan_metrics = compute_metrics_dan(pred_raws, true_raws, window_size=self.args.pred_len)
-            rmse_raw = dan_metrics['rmse']
-            mape_raw = dan_metrics['mape']
-            # rmse_norm = dan_metrics['rmse_norm']
-            # mape_norm = dan_metrics['mape_norm']
+                reservoir_metrics = compute_metrics_reservoir(pred_raws, true_raws)
+                metric_dict = reservoir_metrics
+                metric_line = 'rmse:{}, mape:{}'.format(reservoir_metrics['rmse'], reservoir_metrics['mape'])
 
-            print(f"rmse_raw: {rmse_raw}, mape_raw: {mape_raw}")
-
-            metric_dict = {
-                'rmse_raw': rmse_raw,
-                'mape_raw': mape_raw,
-            }
-
-            metric_line = 'rmse_raw:{}, mape_raw:{}'.format(rmse_raw, mape_raw)
         else:
             metric_line = 'mse:{}, mae:{}'.format(mse, mae)
 

@@ -3,7 +3,7 @@ from torch import nn
 from einops import rearrange
 
 # Implementation from other source code.
-from models.my_method.dozerformer_EncDec import dozerformer_Encoder, dozerformer_Decoder
+from models.my_method.dozerformer_EncDec import dozerformer_Encoder
 
 from models.REVIN import RevIN
 from models.my_method.build_model_util import series_decomp_multi, series_decomp_multi_learnable
@@ -44,20 +44,25 @@ class Model(nn.Module):
         self.output_layer_1 = nn.Linear(configs.seq_len, configs.pred_len)
         self.trend_model = nn.Linear(configs.seq_len, configs.pred_len)
         # if self.watershed:
-        #     self.trend_proj = nn.Linear(self.in_channel, 1)
-
-        # if self.fusion == 'EIA':
-        #     self.attention_mlp = nn.Sequential(
-        #         nn.Linear(self.in_channel * 2, self.in_channel),
+        #     self.final_proj = nn.Sequential(
+        #         nn.Linear(self.in_channel, self.in_channel * 2),
         #         nn.GELU(),
         #         nn.Dropout(0.1),
-        #         nn.Linear(self.in_channel, self.in_channel),
-        #         nn.Sigmoid()
+        #         nn.Linear(self.in_channel * 2, 1)
         #     )
-        #     self._init_eia_weights()
-        # elif self.fusion == 'ADT':
-        #     # self.st_fusion = SKFusion_v2(ts_d=self.in_channel)
-        #     self.st_fusion = SKFusionST(C=self.in_channel)
+
+        if self.fusion == 'EIA':
+            self.attention_mlp = nn.Sequential(
+                nn.Linear(self.in_channel * 2, self.in_channel),
+                nn.GELU(),
+                nn.Dropout(0.1),
+                nn.Linear(self.in_channel, self.in_channel),
+                nn.Sigmoid()
+            )
+            self._init_eia_weights()
+        elif self.fusion == 'ADT':
+            # self.st_fusion = SKFusion_v2(ts_d=self.in_channel)
+            self.st_fusion = SKFusionST(C=self.in_channel)
 
 
     def _init_eia_weights(self):
@@ -90,21 +95,20 @@ class Model(nn.Module):
         trend_predict = self.trend_model(trend_enc)
         trend_predict = rearrange(trend_predict, 'b ts_d seq_len -> b seq_len ts_d')
 
-        # # # Concate Trend and Seasonal
-        # if self.fusion == 'EIA':
-        #     fusion_weights = self.attention_mlp(torch.cat([seasonal_predict, trend_predict], dim=-1))
-        #     final_predict = 2 * (fusion_weights * seasonal_predict + (1 - fusion_weights) * trend_predict)
-        # elif self.fusion == 'ADT':
-        #     final_predict = self.st_fusion(seasonal_predict, trend_predict)
-        # else:
-        final_predict = seasonal_predict + trend_predict
-
-        # if self.watershed:
-        #     final_predict = self.trend_proj(final_predict)    # (b, pred_len, 1)
+        # Concate Trend and Seasonal
+        if self.fusion == 'EIA':
+            fusion_weights = self.attention_mlp(torch.cat([seasonal_predict, trend_predict], dim=-1))
+            final_predict = 2 * (fusion_weights * seasonal_predict + (1 - fusion_weights) * trend_predict)
+        elif self.fusion == 'ADT':
+            final_predict = self.st_fusion(seasonal_predict, trend_predict)
+        else:
+            final_predict = seasonal_predict + trend_predict
 
         # Inverse Revin
         final_predict = self.revin_layer(final_predict, 'denorm')  # (b, pred_len, 2)
         if self.watershed:
             final_predict = final_predict[:, :, 0:1]  # (b, pred_len, 1) — stream only
+        # if self.watershed:
+        #     final_predict = self.final_proj(final_predict)    # (b, pred_len, 1)
         return final_predict
 

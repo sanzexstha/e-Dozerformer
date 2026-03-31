@@ -35,10 +35,6 @@ def MAPE(pred, true):
 def MSPE(pred, true):
     return np.mean(np.square((pred - true) / true))
 
-    # ── DAN-style metric_g (raw space, per-window RMSE) ──────────
-    # Flatten: (N, 288, 1) → (N*288,)
-
-
 def truncate_to_dan(pred, true, window_size=288):
     """Truncate to nearest 100 windows (DAN compute_metrics style)"""
     pred_flat = pred.reshape(-1)
@@ -70,6 +66,30 @@ def metric_g(name, pre, gt):
     lll.append(l2)
     lll.append(l3)
     return lll
+
+
+# def metric_g(name, pre, gt):
+#     pre = np.array(pre)
+#     gt = np.array(gt)
+#     ll = int(len(pre) / 288)
+#     mae_all = []  # unused?
+#     mse_all = []  # unused?
+#     rmse_all = []
+#     mape_all = []
+#     l2 = []
+#     l3 = []
+#     lll = []
+#     for i in range(ll):
+#         mae, mse, rmse, mape = metric(
+#             name, pre[i * 288: (i + 1) * 288], gt[i * 288: (i + 1) * 288]
+#         )
+#         rmse_all.append(rmse)
+#         mape_all.append(mape)
+#     l2.append(np.around(np.mean(np.array(rmse_all)), 2))
+#     l3.append(np.around(np.mean(np.array(mape_all)), 3))
+#     lll.append(l2)
+#     lll.append(l3)
+#     return lll
 
 def metric(pred, true):
     mae = MAE(pred, true)

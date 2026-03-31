@@ -14,10 +14,11 @@ from utils.ext_utils import load_config
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/../../')
 
-def main(arg_file_path = None):
+def main():
     def str2bool(v):
         return str(v).lower() in ('true', '1', 'yes')
     parser = argparse.ArgumentParser(description='Dozerformer')
+    parser.add_argument('--arg_file', type=str, default=None, help='Path to YAML config')
     parser.add_argument('--mode', default='finetune', type=str, help='Name of model to train, options: [pretrain, finetune, Transformer]')
     parser.add_argument('--data', type=str, required=False, default='Ross_noRain',
                         help='name of dataset')
@@ -81,8 +82,6 @@ def main(arg_file_path = None):
     parser.add_argument('--train_epochs', type=int, default=20, help='train epochs')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
-    parser.add_argument("--arg_file", type=str, default="", help=".txt file. If set, reset the default parameters defined in this file.", )
-
 
     parser.add_argument('--wandb', type=str2bool, default=False,
                         help='flag for whether use wandb')
@@ -119,11 +118,13 @@ def main(arg_file_path = None):
     parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
     parser.add_argument('--u_size', type=int, default=2, help='u')
     parser.add_argument('--f_version', type=str, default="sk_v2", help='u')
+    parser.add_argument('--anorm_thres', type=float, default=0.5, help='threshold for anomaly score when using outlier detection')
 
     parser.add_argument('--mask', type=str, default='dozer', help='type of sparse mask')
 
-    parser.add_argument('--exp_run', type=str, default='ross_withrain_metric_g', help='identifier for experiments')
+    parser.add_argument('--exp_run', type=str, default='saratoga_withrain', help='identifier for experiments')
     parser.add_argument('--patch_thres', type=int, default=1, help='type of sparse mask')
+    parser.add_argument('--notes', type=str, default='', help='notes for the experiment')
 
     args = parser.parse_args()
 
@@ -136,7 +137,7 @@ def main(arg_file_path = None):
                 setattr(args, key, value)
 
     watershed_datasets = {
-        'Ross_noRain', 'Ross',
+        'Ross_noRain', 'Ross', 'SFC400',
          'Saratoga',
         'SFC', 'SFC_noRain',
          'UpperPen', 'UpperPen_noRain',
@@ -204,14 +205,15 @@ def main(arg_file_path = None):
         'Exchange_labeled': {'data': 'exchange_rate/exchange_rate_labeled.csv', 'data_dim': 8, 'split': [0.7, 0.1, 0.2]},
         'Ross_noRain': {'data': 'watershed/Ross_noRain', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Ross': {'data': 'watershed/Ross_withRain', 'data_dim': 2, 'split': [0.7, 0.1, 0.2]},
-        'Saratoga': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Saratoga': {'data': 'watershed/Saratoga_withRain', 'data_dim': 2, 'split': [0.7, 0.1, 0.2]},
         'Saratoga_noRain': {'data': 'watershed/Saratoga_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'SFC': {'data': 'watershed/SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'SFC': {'data': 'watershed/SFC_withRain', 'data_dim': 2, 'split': [0.7, 0.1, 0.2]},
+        'SFC400': {'data': 'watershed/SFC400', 'data_dim': 2, 'split': [0.7, 0.1, 0.2]},
         'SFC_noRain': {'data': 'watershed/SFC_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'UpperPen': {'data': 'watershed/UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'UpperPen': {'data': 'watershed/UpperPen_withRain', 'data_dim': 2, 'split': [0.7, 0.1, 0.2]},
         'UpperPen_noRain': {'data': 'watershed/UpperPen_S_fixed.csv', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
         'Coyote': {'data': 'reservoir/Coyote/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
-        'Lexington': {'data': 'reservoir/Lexington', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
+        'Lexington': {'data': 'reservoir/Lexington/in360_out72_ro8', 'data_dim': 1, 'split': [0.7, 0.1, 0.2]},
     }
     if args.data in data_parser.keys():
         data_info = data_parser[args.data]
@@ -263,21 +265,6 @@ def main(arg_file_path = None):
             torch.cuda.empty_cache()
     else:
         ii = 0
-        # setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_eb{}_dt{}_{}_{}'.format(args.model_id,
-        #                                                                                               args.model,
-        #                                                                                               args.data,
-        #                                                                                               args.features,
-        #                                                                                               args.seq_len,
-        #                                                                                               args.label_len,
-        #                                                                                               args.pred_len,
-        #                                                                                               args.d_model,
-        #                                                                                               args.n_heads,
-        #                                                                                               args.e_layers,
-        #                                                                                               args.d_layers,
-        #                                                                                               args.d_ff,
-        #                                                                                               args.embed,
-        #                                                                                               args.distil,
-        #                                                                                               args.des, ii)
         setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_segl{}_dm{}_nh{}_el{}_dl{}_mask_{}'.format(
             args.mode,
             args.model,
