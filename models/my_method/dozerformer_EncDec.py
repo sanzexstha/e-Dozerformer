@@ -6,6 +6,7 @@ from models.my_method.Attentions.Transformer_EncDec import Decoder, DecoderLayer
 from models.my_method.Attentions.SelfAttention_Family import FullAttention, AttentionLayer
 from models.my_method.Attentions.flash_dozer import DozerAttention, DozerAttentionLayer
 from models.my_method.build_model_util import DI_embedding, TS_Segment, series_decomp_multi
+from models.my_method.Attentions.attn_map import ATTENTION_MAP
 from math import ceil
 
 
@@ -49,6 +50,7 @@ class dozerformer_Encoder(nn.Module):
         self.batch_size = configs.batch_size
         self.cycle_len = configs.cycle
         self.embed_dim = configs.embed_dim
+        self.attn = configs.attn
         self.patch_thres = configs.patch_thres
         self.d_model = configs.embed_dim*configs.patch_size
         self.d_ff = configs.d_ff*configs.patch_size
@@ -63,15 +65,16 @@ class dozerformer_Encoder(nn.Module):
                                                             ))
         self.encoder_pre_norm = nn.LayerNorm(self.d_model)
         self.encoder_norm = nn.LayerNorm(self.d_model)
+        attn = ATTENTION_MAP[self.attn](
+            configs,
+            encoder_segment=self.encoder_segment,
+            in_channel=self.in_channel,
+        )
         # Attention
         self.encoder = Encoder(
             [EncoderLayer(
                 DozerAttentionLayer(
-                    DozerAttention(configs.local_window, configs.stride, configs.rand_rate,
-                                    configs.vary_len, self.encoder_segment.seg_num, self.in_channel,
-                                    False, mask=configs.mask,
-                                    attention_dropout=configs.dropout,
-                                    output_attention=configs.output_attention),
+                    attn,
                     self.d_model,
                     configs.n_heads),
                 d_model=self.d_model,

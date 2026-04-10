@@ -61,9 +61,10 @@ def main():
     parser.add_argument('--local_window', type=int, default=2, help='The size of local window')
     parser.add_argument('--stride', type=int, default=4, help='The stride interval sparse attention. If set to 24, interval will be 24.')
     parser.add_argument('--rand_rate', type=int, default=0.1, help='The rate of random attention')
+
     # Ablation paprameters
     parser.add_argument('--vary_len', type=int, default=1, help='The start varying length, if 1 input equals output')
-
+    parser.add_argument('--attn', type=str, default='dozer', help='model supports different attention mechanism [prob, AutoCorr, FedAttn]')
     parser.add_argument('--factor', type=int, default=1, help='attn factor. Autoformer')
     parser.add_argument('--Fedformer_version', type=str, default='None', help='Fouriers, Wavelets')
 
@@ -83,7 +84,7 @@ def main():
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
     parser.add_argument('--load_pretrained_model', type=bool, default=False, help='flag for wether load encoder from pretrained model')
 
-    parser.add_argument('--wandb', type=str2bool, default=False,
+    parser.add_argument('--wandb', type=str2bool, default=True,
                         help='flag for whether use wandb')
     parser.add_argument('--abla_type', type=str, default='False', help='ablation study type')
 
@@ -113,6 +114,7 @@ def main():
     parser.add_argument('--watershed', type=int, default=1, help='1: use rain signal, 0: use GMM outlier indicator')
     parser.add_argument('--oversampling', type=float, default=80, help='Kruskal H threshold for Dan train sampling')
     parser.add_argument('--event_focus_level', type=int, default=18, help='random acceptance percent when H threshold not met')
+
 
     #fusion
     parser.add_argument('--fusion', type=str, default='SUM', help='[SUM, EIA, ADT]')
@@ -170,6 +172,11 @@ def main():
     args.decoder_embed_dim = args.embed_dim
     args.d_ff = args.embed_dim*args.n_heads if args.d_ff == None else args.d_ff
     args.output_attention = False
+
+    # FedAttn (FourierBlock) parameters - only set when needed
+    if args.attn == 'FedAttn':
+        args.modes = getattr(args, 'modes', 64)
+        args.mode_select = getattr(args, 'mode_select', 'random')
 
     # args.wandb = False
 

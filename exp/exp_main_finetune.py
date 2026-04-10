@@ -195,6 +195,7 @@ class Exp_Main(Exp_Basic):
         }
 
         folder_path = './results/' + setting + '/'
+        ext_path = 'ext_results/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
@@ -209,8 +210,6 @@ class Exp_Main(Exp_Basic):
 
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
-
-
 
                 # rmse_raw = np.sqrt(np.mean((outputs - batch_y) ** 2))
                 pred_raw = test_data.inverse_transform(outputs)
@@ -239,6 +238,9 @@ class Exp_Main(Exp_Basic):
 
         pred_raws = np.concatenate(pred_raws, axis=0)
         true_raws = np.concatenate(true_raws, axis=0)
+
+        # np.save(ext_path + self.args.data + '/pred_raws.npy', pred_raws)
+        # np.save(ext_path +  self.args.data + '/true_raws.npy', true_raws)
 
         print('test shape:', preds.shape, trues.shape)
 

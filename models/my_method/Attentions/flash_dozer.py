@@ -5,6 +5,7 @@ from einops import repeat
 from flash_sparse_attn import flash_sparse_attn_func_auto
 from models.my_method.Attentions.attention_masking import SparseMask, show_mask
 
+
 class DozerAttention(nn.Module):
     def __init__(self, local_window, stride, rand_rate, vary_len, pred_len,
                  in_channel, mask_flag=True, scale=None, mask='dozer',
